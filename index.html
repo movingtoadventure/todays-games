@@ -41,6 +41,18 @@
     cursor: pointer;
   }
   .refresh:active { background: var(--divider); }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+  .filter-btn {
+    background: var(--card);
+    color: var(--muted);
+    border: 1px solid var(--divider);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .filter-btn.active { background: var(--accent); color: #0B0F14; border-color: var(--accent); }
   .section-title {
     font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
     color: var(--muted); margin: 20px 0 8px;
@@ -73,6 +85,7 @@
   .line1 { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; line-height: 1.25; }
   .line1 img { width: 22px; height: 22px; object-fit: contain; flex: none; }
   .line1 .vs { color: var(--muted); font-weight: 600; flex: none; }
+  .line1 .rec { color: var(--muted); font-weight: 600; font-size: 13px; margin-left: 2px; flex: none; }
   .line1 .pin { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 0.05em; margin-left: auto; white-space: nowrap; }
   .line2 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 4px; }
   .line2 .sub { font-size: 13px; color: var(--muted); }
@@ -94,6 +107,7 @@
     <span class="updated" id="updated"></span>
     <button class="refresh" id="refreshBtn" type="button">Refresh</button>
   </div>
+  <div class="filters" id="filters"></div>
   <div id="app"><div class="loading">Loading today's games…</div></div>
   <footer>Live scores from ESPN. Times Eastern. Refreshes every 60 seconds while games are live.</footer>
 </div>
@@ -205,6 +219,20 @@
     return null;
   }
 
+  // The team's season record as ESPN reports it ("8-1", "95-67"), or null
+  // when the feed has none (Little League teams usually have none).
+  function recordSummary(records) {
+    if (!records) return null;
+    for (var i = 0; i < records.length; i++) {
+      var r = records[i];
+      if (r.type === "total" && r.summary) {
+        var m = String(r.summary).match(/^(\d+)-(\d+)/);
+        if (m) return m[1] + "-" + m[2];
+      }
+    }
+    return null;
+  }
+
   function llwsRound(comp) {
     var notes = comp.notes || [];
     for (var i = 0; i < notes.length; i++) {
@@ -242,6 +270,7 @@
         homeAway: c.homeAway || "",
         conf: String(c.team.conferenceId || ""),
         winPct: winPctOf(c.records),
+        record: recordSummary(c.records),
       };
     });
     teams.sort(function (a, b) { return (a.homeAway === "away" ? -1 : 1); });
@@ -268,7 +297,9 @@
     return (t.rank ? "#" + t.rank + " " : "") + name;
   }
   function matchupParts(g) {
-    var full = g.teams.map(function (t) { return teamLabel(t, false); }).join(" vs ");
+    // The length check counts the records too, so a game whose names plus
+    // records would crowd the row falls back to abbreviations.
+    var full = g.teams.map(function (t) { return teamLabel(t, false) + (t.record ? " " + t.record : ""); }).join(" vs ");
     var useAbbr = g.sport !== "LLWS" && full.length > 20;
     return g.teams.map(function (t) { return teamLabel(t, useAbbr); });
   }
@@ -454,7 +485,8 @@
     var cells = g.teams.map(function (t, i) {
       var logo = logoUrl(g.sport, t.id);
       var img = logo ? '<img src="' + esc(logo) + '" alt="" onerror="this.style.display=\'none\'">' : "";
-      return (i > 0 ? '<span class="vs">vs</span>' : "") + img + "<span>" + esc(names[i]) + "</span>";
+      var rec = t.record ? '<span class="rec">' + esc(t.record) + "</span>" : "";
+      return (i > 0 ? '<span class="vs">vs</span>' : "") + img + "<span>" + esc(names[i]) + "</span>" + rec;
     }).join("");
     var net = (g.broadcasts[0] || "").toUpperCase();
     var sub = g.sport + (net ? " · " + net : "");
@@ -480,27 +512,68 @@
   var SPORT_LABELS = { MLB: "Baseball", LLWS: "Little League World Series", CFB: "College Football", CBB: "College Basketball" };
   var SPORT_GROUP_ORDER = ["MLB", "LLWS", "CFB", "CBB"]; // same sport priority as the widget
 
+  // Sport filter (toggle buttons at the top of the page). "ALL" shows every
+  // sport; picking one sport shows only that sport's games, so there is no
+  // need to scroll to the bottom to find it. The choice survives the 60s
+  // auto-refresh. LLWS only gets a button when LLWS games are actually
+  // happening, matching the rule that LLWS UI stays hidden out of season.
+  var FILTER_LABELS = { ALL: "All", CFB: "Football", CBB: "Basketball", MLB: "Baseball", LLWS: "Little League" };
+  var currentFilter = "ALL";
+  var lastData = null;
+  var filterSportsSig = "";
+  var filterDirty = true;
+
   // One day's games, grouped under a subheading per sport so football and
   // basketball are easy to tell apart at a glance. Within each sport the
   // priority order is kept (playoffs, pinned top-5, live close, upcoming,
-  // blowouts, finals).
-  function sectionHTML(title, ordered, pinned) {
+  // blowouts, finals). When a single sport is picked, a day with no games
+  // in that sport is hidden entirely instead of showing "No games.", and
+  // the sport subheading is skipped because the filter button already
+  // names the sport.
+  function sectionHTML(title, ordered, pinned, filter) {
+    var list = filter === "ALL" ? ordered : ordered.filter(function (g) { return g.sport === filter; });
+    if (!list.length) {
+      if (filter === "ALL") return '<div class="section-title">' + esc(title) + '</div><div class="empty">No games.</div>';
+      return "";
+    }
     var html = '<div class="section-title">' + esc(title) + "</div>";
-    if (!ordered.length) { html += '<div class="empty">No games.</div>'; return html; }
     SPORT_GROUP_ORDER.forEach(function (sport) {
-      var games = ordered.filter(function (g) { return g.sport === sport; });
+      var games = list.filter(function (g) { return g.sport === sport; });
       if (!games.length) return;
-      html += '<div class="sport-title">' + esc(SPORT_LABELS[sport] || sport) + "</div>";
+      if (filter === "ALL") html += '<div class="sport-title">' + esc(SPORT_LABELS[sport] || sport) + "</div>";
       games.forEach(function (g) { html += gameRowHTML(g, pinned && g === pinned); });
     });
     return html;
   }
 
+  function renderFilters(sports) {
+    var btns = '<button class="filter-btn' + (currentFilter === "ALL" ? " active" : "") + '" type="button" data-sport="ALL">All</button>';
+    SPORT_GROUP_ORDER.forEach(function (sport) {
+      if (!sports[sport]) return;
+      btns += '<button class="filter-btn' + (currentFilter === sport ? " active" : "") + '" type="button" data-sport="' + sport + '">' + esc(FILTER_LABELS[sport] || sport) + "</button>";
+    });
+    document.getElementById("filters").innerHTML = btns;
+  }
+
   function render(data) {
+    lastData = data;
     var app = document.getElementById("app");
     if (!data.anyFeed) {
       app.innerHTML = '<div class="error">Couldn\'t load scores from ESPN right now. Check your connection and tap Refresh.</div>';
       return;
+    }
+    // Rebuild the filter buttons only when the set of sports with games
+    // changes or the picked filter changed, so an auto-refresh never
+    // rebuilds them (and steals a tap) while the user is interacting.
+    var sports = {};
+    [data.today.ordered, data.tomorrow.ordered, data.maryland.ordered].forEach(function (list) {
+      list.forEach(function (g) { sports[g.sport] = true; });
+    });
+    var sig = SPORT_GROUP_ORDER.filter(function (s) { return sports[s]; }).join(",");
+    if (filterDirty || sig !== filterSportsSig) {
+      filterSportsSig = sig;
+      filterDirty = false;
+      renderFilters(sports);
     }
     var html = "";
     if (data.nascar) {
@@ -509,10 +582,10 @@
       html += '<div class="nascar"><div class="name">🏁 ' + esc(data.nascar.name) + (isRaceDay ? " — TODAY" : "") + '</div>' +
         '<div class="when">NASCAR · ' + esc(shortDateOf(d)) + " · " + esc(data.nascar.network) + " · " + (data.nascar.time ? esc(data.nascar.time) : "Time TBA") + "</div></div>";
     }
-    html += sectionHTML("TODAY", data.today.ordered, data.today.pinned);
-    html += sectionHTML("TOMORROW", data.tomorrow.ordered, data.tomorrow.pinned);
+    html += sectionHTML("TODAY", data.today.ordered, data.today.pinned, currentFilter);
+    html += sectionHTML("TOMORROW", data.tomorrow.ordered, data.tomorrow.pinned, currentFilter);
     if (data.maryland.ordered.length) {
-      html += sectionHTML("MARYLAND", data.maryland.ordered, data.maryland.pinned);
+      html += sectionHTML("MARYLAND", data.maryland.ordered, data.maryland.pinned, currentFilter);
     }
     app.innerHTML = html;
     document.getElementById("updated").textContent = "Updated " + timeOf(new Date());
@@ -527,6 +600,15 @@
   function start() {
     document.getElementById("date").textContent = shortDateOf(new Date()).toUpperCase();
     document.getElementById("refreshBtn").addEventListener("click", refresh);
+    // One delegated listener on the filter row: the buttons are rebuilt
+    // whenever the sports change, but this listener survives the rebuild.
+    document.getElementById("filters").addEventListener("click", function (e) {
+      var sport = e.target && e.target.dataset ? e.target.dataset.sport : null;
+      if (!sport || sport === currentFilter) return;
+      currentFilter = sport;
+      filterDirty = true;
+      if (lastData) render(lastData);
+    });
     refresh();
     timer = setInterval(function () { refresh(); }, CONFIG.refreshSeconds * 1000);
     document.addEventListener("visibilitychange", function () {
