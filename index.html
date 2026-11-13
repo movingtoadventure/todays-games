@@ -85,6 +85,7 @@
   .line1 { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; line-height: 1.25; }
   .line1 img { width: 22px; height: 22px; object-fit: contain; flex: none; }
   .line1 .vs { color: var(--muted); font-weight: 600; flex: none; }
+  .line1 .rank { color: var(--accent); font-weight: 800; margin-right: 4px; flex: none; }
   .line1 .rec { color: var(--muted); font-weight: 600; font-size: 13px; margin-left: 2px; flex: none; }
   .line1 .pin { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 0.05em; margin-left: auto; white-space: nowrap; }
   .line2 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 4px; }
@@ -150,13 +151,54 @@
 
   // ESPN has no NASCAR feed, so the next race comes from this list.
   // Dates/networks verified 2026-11-13 from NASCAR.com (2027 schedule
-  // announced Aug 26, 2026). Start times had NOT been announced yet —
-  // keep time: null and the page shows "Time TBA". Do not guess a time.
+  // announced Aug 26, 2026) and cross-checked. This is the FULL 2027
+  // season: 39 events (36 points races + 3 exhibitions), Feb 13 – Nov 14.
+  // Start times had NOT been announced yet — keep time: null and the page
+  // shows "Time TBA". Do not guess a time. Networks are the broadcast
+  // partner (FOX Sports / Prime Video / TNT Sports / USA Sports); the
+  // specific FOX vs FS1 channel inside the FOX Sports window had not been
+  // announced, except the first three races, verified as FOX.
   var NASCAR_SCHEDULE = [
     { name: "Wheatley Vodka Clash", track: "Daytona International Speedway", date: "2027-02-13", network: "FOX", time: null, exhibition: true },
-    { name: "Duel at Daytona",      track: "Daytona International Speedway", date: "2027-02-18", network: "FOX", time: null, exhibition: true },
-    { name: "Daytona 500",          track: "Daytona International Speedway", date: "2027-02-21", network: "FOX", time: null, exhibition: false },
-  ];
+    { name: "Duel at Daytona", track: "Daytona International Speedway", date: "2027-02-18", network: "FOX", time: null, exhibition: true },
+    { name: "Daytona 500", track: "Daytona International Speedway", date: "2027-02-21", network: "FOX", time: null, exhibition: false },
+    { name: "Autotrader 400", track: "EchoPark Speedway", date: "2027-02-28", network: "FOX Sports", time: null, exhibition: false },
+    { name: "DuraMAX Texas Grand Prix", track: "Circuit of The Americas", date: "2027-03-07", network: "FOX Sports", time: null, exhibition: false },
+    { name: "Phoenix Raceway", track: "Phoenix Raceway", date: "2027-03-14", network: "FOX Sports", time: null, exhibition: false },
+    { name: "Las Vegas Motor Speedway", track: "Las Vegas Motor Speedway", date: "2027-03-21", network: "FOX Sports", time: null, exhibition: false },
+    { name: "Darlington Raceway", track: "Darlington Raceway", date: "2027-04-04", network: "FOX Sports", time: null, exhibition: false },
+    { name: "Bristol Motor Speedway", track: "Bristol Motor Speedway", date: "2027-04-11", network: "FOX Sports", time: null, exhibition: false },
+    { name: "Cook Out 400", track: "Martinsville Speedway", date: "2027-04-18", network: "FOX Sports", time: null, exhibition: false },
+    { name: "Jack Link's 500", track: "Talladega Superspeedway", date: "2027-04-25", network: "FOX Sports", time: null, exhibition: false },
+    { name: "Würth 400 presented by Liqui Moly", track: "Texas Motor Speedway", date: "2027-05-02", network: "FOX Sports", time: null, exhibition: false },
+    { name: "Kansas Speedway", track: "Kansas Speedway", date: "2027-05-09", network: "FOX Sports", time: null, exhibition: false },
+    { name: "Dover Motor Speedway", track: "Dover Motor Speedway", date: "2027-05-16", network: "FOX Sports", time: null, exhibition: false },
+    { name: "All-Star Race", track: "North Wilkesboro Speedway", date: "2027-05-23", network: "FOX Sports", time: null, exhibition: true },
+    { name: "Coca-Cola 600", track: "Charlotte Motor Speedway", date: "2027-05-30", network: "Prime Video", time: null, exhibition: false },
+    { name: "Nashville Superspeedway", track: "Nashville Superspeedway", date: "2027-06-06", network: "Prime Video", time: null, exhibition: false },
+    { name: "Great American Getaway 400 presented by VISIT PA", track: "Pocono Raceway", date: "2027-06-13", network: "Prime Video", time: null, exhibition: false },
+    { name: "Michigan International Speedway", track: "Michigan International Speedway", date: "2027-06-20", network: "Prime Video", time: null, exhibition: false },
+    { name: "Chicagoland Speedway", track: "Chicagoland Speedway", date: "2027-06-27", network: "Prime Video", time: null, exhibition: false },
+    { name: "Iowa Speedway", track: "Iowa Speedway", date: "2027-07-04", network: "TNT Sports", time: null, exhibition: false },
+    { name: "Toyota/Save Mart 350", track: "Sonoma Raceway", date: "2027-07-11", network: "TNT Sports", time: null, exhibition: false },
+    { name: "Dollar Tree 400", track: "EchoPark Speedway", date: "2027-07-18", network: "TNT Sports", time: null, exhibition: false },
+    { name: "Brickyard 400", track: "Indianapolis Motor Speedway", date: "2027-07-25", network: "TNT Sports", time: null, exhibition: false },
+    { name: "Naval Base Coronado", track: "Naval Base Coronado", date: "2027-08-01", network: "TNT Sports", time: null, exhibition: false },
+    { name: "Bass Pro Shops Night Race", track: "Bristol Motor Speedway", date: "2027-08-14", network: "USA Sports", time: null, exhibition: false },
+    { name: "Enjoy Illinois 300", track: "World Wide Technology Raceway", date: "2027-08-22", network: "USA Sports", time: null, exhibition: false },
+    { name: "Coke Zero Sugar 400", track: "Daytona International Speedway", date: "2027-08-28", network: "USA Sports", time: null, exhibition: false },
+    { name: "Southern 500", track: "Darlington Raceway", date: "2027-09-05", network: "USA Sports", time: null, exhibition: false },
+    { name: "Richmond Raceway", track: "Richmond Raceway", date: "2027-09-11", network: "USA Sports", time: null, exhibition: false },
+    { name: "Watkins Glen International", track: "Watkins Glen International", date: "2027-09-19", network: "USA Sports", time: null, exhibition: false },
+    { name: "New Hampshire Motor Speedway", track: "New Hampshire Motor Speedway", date: "2027-09-26", network: "USA Sports", time: null, exhibition: false },
+    { name: "Kansas Speedway", track: "Kansas Speedway", date: "2027-10-03", network: "USA Sports", time: null, exhibition: false },
+    { name: "Las Vegas Motor Speedway", track: "Las Vegas Motor Speedway", date: "2027-10-10", network: "USA Sports", time: null, exhibition: false },
+    { name: "Charlotte Motor Speedway", track: "Charlotte Motor Speedway", date: "2027-10-17", network: "USA Sports", time: null, exhibition: false },
+    { name: "Freeway Insurance 500", track: "Phoenix Raceway", date: "2027-10-24", network: "USA Sports", time: null, exhibition: false },
+    { name: "YellaWood 500", track: "Talladega Superspeedway", date: "2027-10-31", network: "USA Sports", time: null, exhibition: false },
+    { name: "Xfinity 500", track: "Martinsville Speedway", date: "2027-11-07", network: "USA Sports", time: null, exhibition: false },
+    { name: "NASCAR Championship", track: "Homestead-Miami Speedway", date: "2027-11-14", network: "USA Sports", time: null, exhibition: false },
+];
 
   var URLS = {
     cfbScores: "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
@@ -296,12 +338,17 @@
     var name = useAbbr ? t.abbr : t.name;
     return (t.rank ? "#" + t.rank + " " : "") + name;
   }
+  // Each team's part of the matchup, with the rank kept separate from the
+  // name so the rank can be styled on its own (gold, so it stands out).
+  // The length check counts the rank and the record too, so a game whose
+  // names plus rank plus records would crowd the row falls back to
+  // abbreviations.
   function matchupParts(g) {
-    // The length check counts the records too, so a game whose names plus
-    // records would crowd the row falls back to abbreviations.
     var full = g.teams.map(function (t) { return teamLabel(t, false) + (t.record ? " " + t.record : ""); }).join(" vs ");
     var useAbbr = g.sport !== "LLWS" && full.length > 20;
-    return g.teams.map(function (t) { return teamLabel(t, useAbbr); });
+    return g.teams.map(function (t) {
+      return { rank: t.rank || null, name: useAbbr ? t.abbr : t.name, record: t.record || null };
+    });
   }
   function logoUrl(sport, teamId) {
     if (!teamId) return null;
@@ -481,12 +528,14 @@
   }
 
   function gameRowHTML(g, pinned) {
-    var names = matchupParts(g);
+    var parts = matchupParts(g);
     var cells = g.teams.map(function (t, i) {
       var logo = logoUrl(g.sport, t.id);
       var img = logo ? '<img src="' + esc(logo) + '" alt="" onerror="this.style.display=\'none\'">' : "";
-      var rec = t.record ? '<span class="rec">' + esc(t.record) + "</span>" : "";
-      return (i > 0 ? '<span class="vs">vs</span>' : "") + img + "<span>" + esc(names[i]) + "</span>" + rec;
+      var p = parts[i];
+      var rank = p.rank ? '<span class="rank">#' + p.rank + "</span>" : "";
+      var rec = p.record ? '<span class="rec">' + esc(p.record) + "</span>" : "";
+      return (i > 0 ? '<span class="vs">vs</span>' : "") + img + rank + "<span>" + esc(p.name) + "</span>" + rec;
     }).join("");
     var net = (g.broadcasts[0] || "").toUpperCase();
     var sub = g.sport + (net ? " · " + net : "");
