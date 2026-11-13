@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Today's Games</title>
+<style>
+  :root {
+    --bg: #0B0F14;
+    --card: #12181F;
+    --text: #FFFFFF;
+    --muted: #8A94A6;
+    --faint: #5A6472;
+    --divider: #1E2630;
+    --accent: #E8B33C;
+    --live: #34C759;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+  h1 { font-size: 20px; font-weight: 800; letter-spacing: 0.02em; }
+  .date { font-size: 13px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+  .meta { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .updated { font-size: 12px; color: var(--faint); }
+  .refresh {
+    margin-left: auto;
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--divider);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .refresh:active { background: var(--divider); }
+  .section-title {
+    font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
+    color: var(--muted); margin: 20px 0 8px;
+  }
+  .sport-title {
+    font-size: 11px; font-weight: 800; letter-spacing: 0.08em;
+    color: var(--accent); margin: 14px 0 6px;
+  }
+  .nascar {
+    background: var(--card);
+    border: 1px solid var(--divider);
+    border-left: 3px solid var(--accent);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .nascar .name { font-size: 15px; font-weight: 700; }
+  .nascar .when { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .game {
+    display: block;
+    background: var(--card);
+    border: 1px solid var(--divider);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    text-decoration: none;
+    color: inherit;
+  }
+  .game:active { background: #171E27; }
+  .line1 { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; line-height: 1.25; }
+  .line1 img { width: 22px; height: 22px; object-fit: contain; flex: none; }
+  .line1 .vs { color: var(--muted); font-weight: 600; flex: none; }
+  .line1 .pin { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 0.05em; margin-left: auto; white-space: nowrap; }
+  .line2 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 4px; }
+  .line2 .sub { font-size: 13px; color: var(--muted); }
+  .line2 .right { font-size: 13px; font-weight: 700; white-space: nowrap; }
+  .line2 .right.live { color: var(--live); }
+  .empty { color: var(--muted); font-size: 15px; padding: 12px 2px; }
+  .error { color: var(--muted); font-size: 14px; padding: 16px 2px; line-height: 1.5; }
+  footer { margin-top: 24px; font-size: 12px; color: var(--faint); line-height: 1.6; }
+  .loading { color: var(--muted); font-size: 15px; padding: 24px 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>TODAY'S GAMES</h1>
+    <span class="date" id="date"></span>
+  </header>
+  <div class="meta">
+    <span class="updated" id="updated"></span>
+    <button class="refresh" id="refreshBtn" type="button">Refresh</button>
+  </div>
+  <div id="app"><div class="loading">Loading today's games…</div></div>
+  <footer>Live scores from ESPN. Times Eastern. Refreshes every 60 seconds while games are live.</footer>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  // ---------- SETTINGS (same rules as the Scriptable widget) ----------
+  var CONFIG = {
+    includeNascarExhibitions: true, // false = skip the Clash/Duels, show next points race
+    nascarShowWithinDays: 2,        // only show the NASCAR row when the race is this close
+    refreshSeconds: 60,
+  };
+
+  var SPORT_ORDER = { MLB: 0, LLWS: 1, CFB: 2, CBB: 3 };
+  var BLOWOUT_MARGIN = { CFB: 24, CBB: 21, MLB: 6, LLWS: 10 };
+  var FAV_CONFERENCES = {
+    CFB: ["8", "5"],       // ESPN conferenceIds: SEC 8, Big Ten 5
+    CBB: ["23", "7", "8"], // SEC 23, Big Ten 7, Big 12 8 (IDs differ by sport)
+  };
+  // Power conferences — a team in one of these is a "quality" opponent even
+  // when unranked (Ohio State, UConn, etc.). Power Four: ACC, Big Ten,
+  // Big 12, SEC (plus the Big East, a major basketball conference).
+  // CFB: SEC 8, Big Ten 5, ACC 1, Big 12 4. CBB: SEC 23, Big Ten 7,
+  // Big 12 8, ACC 2, Big East 4.
+  var POWER_CONFERENCES = {
+    CFB: ["8", "5", "1", "4"],
+    CBB: ["23", "7", "8", "2", "4"],
+  };
+  // A "quality" team is one that is ranked, or plays in a power conference.
+  // A game with two quality teams (Kansas vs Ohio State, Arizona vs Auburn,
+  // Virginia vs Maryland) is a better, more competitive game than a ranked
+  // team vs a tiny school (Florida vs Merrimack), so it ranks higher.
+  // Ranked-vs-ranked is the highest priority of all (both teams quality).
+  function qualityCount(g) {
+    var confs = POWER_CONFERENCES[g.sport] || [];
+    return g.teams.filter(function (t) { return t.rank || confs.indexOf(t.conf) !== -1; }).length;
+  }
+  var NATIONAL_TV = ["ESPN", "FOX", "FS1", "TBS", "MLB NETWORK"];
+
+  // ESPN has no NASCAR feed, so the next race comes from this list.
+  // Dates/networks verified 2026-11-13 from NASCAR.com (2027 schedule
+  // announced Aug 26, 2026). Start times had NOT been announced yet —
+  // keep time: null and the page shows "Time TBA". Do not guess a time.
+  var NASCAR_SCHEDULE = [
+    { name: "Wheatley Vodka Clash", track: "Daytona International Speedway", date: "2027-02-13", network: "FOX", time: null, exhibition: true },
+    { name: "Duel at Daytona",      track: "Daytona International Speedway", date: "2027-02-18", network: "FOX", time: null, exhibition: true },
+    { name: "Daytona 500",          track: "Daytona International Speedway", date: "2027-02-21", network: "FOX", time: null, exhibition: false },
+  ];
+
+  var URLS = {
+    cfbScores: "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
+    cfbRanks:  "https://site.api.espn.com/apis/site/v2/sports/football/college-football/rankings",
+    cbbScores: "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
+    cbbRanks:  "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/rankings",
+    mlbScores: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
+    llbScores: "https://site.api.espn.com/apis/site/v2/sports/baseball/llb/scoreboard",
+  };
+
+  var TZ = "America/New_York";
+  function ymdOf(d) {
+    // Local calendar date in Eastern time, as yyyy-MM-dd.
+    var parts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d);
+    var y, m, day;
+    parts.forEach(function (p) { if (p.type === "year") y = p.value; if (p.type === "month") m = p.value; if (p.type === "day") day = p.value; });
+    return y + "-" + m + "-" + day;
+  }
+  function timeOf(d) {
+    return new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" }).format(d);
+  }
+  function shortDateOf(d) {
+    return new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" }).format(d);
+  }
+  function dateFromYmd(ymd) {
+    var p = ymd.split("-");
+    return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10), 12, 0, 0);
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function rankMap(data, part) {
+    var map = {};
+    if (!data || !data.rankings) return map;
+    for (var i = 0; i < data.rankings.length; i++) {
+      var list = data.rankings[i];
+      if (list.name && list.name.indexOf(part) !== -1) {
+        (list.ranks || []).forEach(function (r) {
+          if (r.team && r.team.id) map[String(r.team.id)] = r.current;
+        });
+        break;
+      }
+    }
+    return map;
+  }
+
+  function winPctOf(records) {
+    if (!records) return null;
+    for (var i = 0; i < records.length; i++) {
+      var r = records[i];
+      if (r.type === "total" && r.summary) {
+        var m = String(r.summary).match(/^(\d+)-(\d+)/);
+        if (m) {
+          var w = parseInt(m[1], 10), l = parseInt(m[2], 10);
+          if (w + l > 0) return w / (w + l);
+        }
+      }
+    }
+    return null;
+  }
+
+  function llwsRound(comp) {
+    var notes = comp.notes || [];
+    for (var i = 0; i < notes.length; i++) {
+      var h = String(notes[i].headline || "");
+      var j = h.indexOf(" - ");
+      if (j !== -1) return h.slice(j + 3);
+    }
+    return "";
+  }
+
+  function isPlayoff(comp) {
+    var notes = comp.notes || [];
+    for (var i = 0; i < notes.length; i++) {
+      var h = String(notes[i].headline || "");
+      if (/playoff|championship|semifinal|final four|sweet 16|elite eight|world series|ALCS|NLCS|ALDS|NLDS|wild card|NCAA tournament/i.test(h)) return true;
+    }
+    return false;
+  }
+
+  function parseEvent(ev, ranks, sport) {
+    var comp = (ev.competitions && ev.competitions[0]) || {};
+    var teams = (comp.competitors || []).map(function (c) {
+      var curated = (c.curatedRank && c.curatedRank.current) || null;
+      var fallbackRank = (curated && curated >= 1 && curated <= 25) ? curated : null;
+      var nm = c.team.shortDisplayName || c.team.displayName || c.team.abbreviation;
+      if (sport === "LLWS") nm = nm.replace(/\s[A-Z]{2,3}$/, "");
+      return {
+        id: String(c.team.id),
+        abbr: c.team.abbreviation,
+        name: nm,
+        rank: ranks ? (ranks[String(c.team.id)] || fallbackRank) : fallbackRank,
+        // ESPN returns score "0" for games that have not started — treat
+        // pre-game scores as null so they never render as 0–0.
+        score: (c.score !== undefined && c.score !== null && String(c.score) !== "0") ? c.score : null,
+        homeAway: c.homeAway || "",
+        conf: String(c.team.conferenceId || ""),
+        winPct: winPctOf(c.records),
+      };
+    });
+    teams.sort(function (a, b) { return (a.homeAway === "away" ? -1 : 1); });
+    var broadcasts = [];
+    (comp.broadcasts || []).forEach(function (b) { (b.names || []).forEach(function (n) { broadcasts.push(n); }); });
+    var state = (ev.status && ev.status.type && ev.status.type.state) || "pre";
+    var detail = (ev.status && ev.status.type && ev.status.type.shortDetail) || "";
+    var date = new Date(ev.date);
+    var gameLink = null;
+    (ev.links || []).forEach(function (l) {
+      if (!gameLink && l && l.href && (l.rel || []).some(function (r) { return r === "boxscore" || r === "gamecast" || r === "summary"; })) gameLink = l.href;
+    });
+    return {
+      id: ev.id, date: date, ymd: ymdOf(date), time: timeOf(date),
+      state: state, detail: detail, teams: teams, broadcasts: broadcasts,
+      playoff: sport === "LLWS" ? false : isPlayoff(comp),
+      round: llwsRound(comp),
+      link: gameLink,
+    };
+  }
+
+  function teamLabel(t, useAbbr) {
+    var name = useAbbr ? t.abbr : t.name;
+    return (t.rank ? "#" + t.rank + " " : "") + name;
+  }
+  function matchupParts(g) {
+    var full = g.teams.map(function (t) { return teamLabel(t, false); }).join(" vs ");
+    var useAbbr = g.sport !== "LLWS" && full.length > 20;
+    return g.teams.map(function (t) { return teamLabel(t, useAbbr); });
+  }
+  function logoUrl(sport, teamId) {
+    if (!teamId) return null;
+    if (sport === "CFB" || sport === "CBB") return "https://a.espncdn.com/i/teamlogos/ncaa/500-dark/" + teamId + ".png";
+    if (sport === "MLB") return "https://a.espncdn.com/i/teamlogos/mlb/500/" + teamId + ".png";
+    return null;
+  }
+  function isNationalTV(broadcasts) {
+    for (var i = 0; i < broadcasts.length; i++) {
+      if (NATIONAL_TV.indexOf(String(broadcasts[i]).trim().toUpperCase()) !== -1) return true;
+    }
+    return false;
+  }
+  function isMaryland(g) {
+    return g.teams.some(function (t) {
+      return t.abbr === "MD" || String(t.name).indexOf("Maryland") !== -1;
+    });
+  }
+
+  function nextNascar(todayYmd) {
+    var today = dateFromYmd(todayYmd);
+    var list = NASCAR_SCHEDULE
+      .filter(function (r) { return !r.exhibition || CONFIG.includeNascarExhibitions; })
+      .filter(function (r) { return r.date >= todayYmd; })
+      .filter(function (r) { return Math.round((dateFromYmd(r.date) - today) / 86400000) <= CONFIG.nascarShowWithinDays; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    return list.length ? list[0] : null;
+  }
+
+  function rankSum(g) { return g.teams.reduce(function (s, t) { return s + (t.rank || 99); }, 0); }
+  function hasFavConf(g) {
+    var confs = FAV_CONFERENCES[g.sport] || [];
+    return g.teams.some(function (t) { return confs.indexOf(t.conf) !== -1; });
+  }
+  function combinedWinPct(g) {
+    var pcts = g.teams.map(function (t) { return t.winPct; }).filter(function (p) { return p !== null; });
+    if (!pcts.length) return -1;
+    return pcts.reduce(function (a, b) { return a + b; }, 0) / pcts.length;
+  }
+  function isBlowout(g) {
+    if (g.state !== "in" || g.teams.length < 2) return false;
+    var s0 = g.teams[0].score, s1 = g.teams[1].score;
+    if (s0 === null || s1 === null) return false;
+    return Math.abs(Number(s0) - Number(s1)) >= (BLOWOUT_MARGIN[g.sport] || 20);
+  }
+  function isTop5Matchup(g) {
+    return g.teams.length === 2 && g.teams.every(function (t) { return t.rank && t.rank <= 5; });
+  }
+  function watchCompare(a, b) {
+    var so = (SPORT_ORDER[a.sport] || 0) - (SPORT_ORDER[b.sport] || 0);
+    if (so) return so;
+    if (a.sport === "MLB") {
+      var mwp = combinedWinPct(b) - combinedWinPct(a);
+      if (mwp) return mwp;
+    }
+    // Competitiveness first: two quality teams beats one, which beats none.
+    var qc = qualityCount(b) - qualityCount(a);
+    if (qc) return qc;
+    // Then both teams' records (matters most for football, mid/late season).
+    var wp = combinedWinPct(b) - combinedWinPct(a);
+    if (wp) return wp;
+    var fav = (hasFavConf(b) ? 1 : 0) - (hasFavConf(a) ? 1 : 0);
+    if (fav) return fav;
+    var rs = rankSum(a) - rankSum(b);
+    if (rs) return rs;
+    return a.date - b.date;
+  }
+  function stateClass(g) {
+    if (g.state === "in") return isBlowout(g) ? 2 : 0;
+    if (g.state === "pre") return 1;
+    return 3;
+  }
+  function orderGames(games) {
+    var list = games.slice();
+    var playoffs = list.filter(function (g) { return g.playoff; });
+    var rest = list.filter(function (g) { return !g.playoff; });
+    var matchups = rest.filter(isTop5Matchup).sort(function (a, b) {
+      var fav = (hasFavConf(b) ? 1 : 0) - (hasFavConf(a) ? 1 : 0);
+      if (fav) return fav;
+      return rankSum(a) - rankSum(b) || (a.date - b.date);
+    });
+    var pinned = matchups.find(function (g) { return !isBlowout(g); }) || null;
+    var others = rest.filter(function (g) { return g !== pinned; });
+    others.sort(function (a, b) { return stateClass(a) - stateClass(b) || watchCompare(a, b); });
+    playoffs.sort(function (a, b) { return stateClass(a) - stateClass(b) || watchCompare(a, b); });
+    return { ordered: playoffs.concat(pinned ? [pinned] : []).concat(others), pinned: pinned };
+  }
+
+  async function fetchJSON(url) {
+    try {
+      var res = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) { return null; }
+  }
+
+  async function loadAll() {
+    var now = new Date();
+    var todayYmd = ymdOf(now);
+    var tomorrowYmd = ymdOf(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+    // Fetch each scoreboard with an explicit dates= param for today AND
+    // tomorrow. The default scoreboard (no dates) only returns a subset —
+    // verified 2026-11-13: it missed the Wisconsin at Maryland football game
+    // and 2 ranked basketball games (Stonehill at Texas Tech, LSU at
+    // Gonzaga). Explicit dates return the complete slate for each day.
+    function sbUrl(base, ymd) { return base + "?dates=" + ymd.replace(/-/g, ""); }
+    var results = await Promise.all([
+      fetchJSON(sbUrl(URLS.cfbScores, todayYmd)), fetchJSON(sbUrl(URLS.cfbScores, tomorrowYmd)),
+      fetchJSON(URLS.cfbRanks),
+      fetchJSON(sbUrl(URLS.cbbScores, todayYmd)), fetchJSON(sbUrl(URLS.cbbScores, tomorrowYmd)),
+      fetchJSON(URLS.cbbRanks),
+      fetchJSON(sbUrl(URLS.mlbScores, todayYmd)), fetchJSON(sbUrl(URLS.mlbScores, tomorrowYmd)),
+      fetchJSON(sbUrl(URLS.llbScores, todayYmd)), fetchJSON(sbUrl(URLS.llbScores, tomorrowYmd)),
+    ]);
+    var cfbToday = results[0], cfbTom = results[1], cfbR = results[2],
+        cbbToday = results[3], cbbTom = results[4], cbbR = results[5],
+        mlbToday = results[6], mlbTom = results[7],
+        llbToday = results[8], llbTom = results[9];
+    var cfbRanks = rankMap(cfbR, "Playoff");
+    var cbbRanks = rankMap(cbbR, "AP Top 25");
+    var todayGames = [], tomorrowGames = [], mdGames = [];
+    function collect(scoreboard, ranks, sport, keep) {
+      if (!scoreboard || !scoreboard.events) return;
+      scoreboard.events.forEach(function (ev) {
+        var g = parseEvent(ev, ranks, sport);
+        g.sport = sport;
+        if (!keep(g, ev)) return;
+        if (g.ymd === todayYmd) todayGames.push(g);
+        else if (g.ymd === tomorrowYmd) tomorrowGames.push(g);
+      });
+    }
+    collect(cfbToday, cfbRanks, "CFB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
+    collect(cfbTom, cfbRanks, "CFB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
+    collect(cbbToday, cbbRanks, "CBB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
+    collect(cbbTom, cbbRanks, "CBB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
+    collect(mlbToday, null, "MLB", function (g) {
+      return g.teams.some(function (t) { return t.abbr === "BAL"; }) || isNationalTV(g.broadcasts);
+    });
+    collect(mlbTom, null, "MLB", function (g) {
+      return g.teams.some(function (t) { return t.abbr === "BAL"; }) || isNationalTV(g.broadcasts);
+    });
+    collect(llbToday, null, "LLWS", function (g, ev) {
+      var comp = (ev.competitions && ev.competitions[0]) || {};
+      var notes = comp.notes || [];
+      return notes.some(function (n) { return String(n.headline || "").indexOf("Little League Baseball World Series") !== -1; });
+    });
+    collect(llbTom, null, "LLWS", function (g, ev) {
+      var comp = (ev.competitions && ev.competitions[0]) || {};
+      var notes = comp.notes || [];
+      return notes.some(function (n) { return String(n.headline || "").indexOf("Little League Baseball World Series") !== -1; });
+    });
+    // Maryland football, even when unranked — the full view includes it.
+    // (Ranked Maryland games already appear in the main lists; this section
+    // only shows the ones that would otherwise be missing.)
+    function collectMaryland(scoreboard, ranks, sport) {
+      if (!scoreboard || !scoreboard.events) return;
+      scoreboard.events.forEach(function (ev) {
+        var g = parseEvent(ev, ranks, sport);
+        g.sport = sport;
+        if (!isMaryland(g)) return;
+        if (g.ymd !== todayYmd && g.ymd !== tomorrowYmd) return;
+        var inMain = (g.ymd === todayYmd ? todayGames : tomorrowGames).some(function (x) { return x.id === g.id; });
+        if (!inMain) mdGames.push(g);
+      });
+    }
+    collectMaryland(cfbToday, cfbRanks, "CFB");
+    collectMaryland(cfbTom, cfbRanks, "CFB");
+    return {
+      today: orderGames(todayGames),
+      tomorrow: orderGames(tomorrowGames),
+      maryland: orderGames(mdGames),
+      nascar: nextNascar(todayYmd),
+      todayYmd: todayYmd,
+      now: now,
+      anyFeed: !!(cfbToday || cfbTom || cbbToday || cbbTom || mlbToday || mlbTom || llbToday || llbTom),
+    };
+  }
+
+  function gameRowHTML(g, pinned) {
+    var names = matchupParts(g);
+    var cells = g.teams.map(function (t, i) {
+      var logo = logoUrl(g.sport, t.id);
+      var img = logo ? '<img src="' + esc(logo) + '" alt="" onerror="this.style.display=\'none\'">' : "";
+      return (i > 0 ? '<span class="vs">vs</span>' : "") + img + "<span>" + esc(names[i]) + "</span>";
+    }).join("");
+    var net = (g.broadcasts[0] || "").toUpperCase();
+    var sub = g.sport + (net ? " · " + net : "");
+    if (g.sport === "LLWS" && g.round) sub += " · " + esc(g.round);
+    var right = "", rightCls = "";
+    if (g.state === "in") {
+      var score = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join("–");
+      right = esc(score) + "  ● " + esc(g.detail);
+      rightCls = "live";
+    } else if (g.state === "post") {
+      var fscore = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join("–");
+      right = esc(fscore) + " · Final";
+    } else {
+      right = esc(g.time);
+    }
+    var pinTag = pinned ? '<span class="pin">TOP 5</span>' : "";
+    var inner = '<div class="line1">' + cells + pinTag + "</div>" +
+      '<div class="line2"><span class="sub">' + esc(sub) + '</span><span class="right ' + rightCls + '">' + right + "</span></div>";
+    if (g.link) return '<a class="game" href="' + esc(g.link) + '" target="_blank" rel="noopener">' + inner + "</a>";
+    return '<div class="game">' + inner + "</div>";
+  }
+
+  var SPORT_LABELS = { MLB: "Baseball", LLWS: "Little League World Series", CFB: "College Football", CBB: "College Basketball" };
+  var SPORT_GROUP_ORDER = ["MLB", "LLWS", "CFB", "CBB"]; // same sport priority as the widget
+
+  // One day's games, grouped under a subheading per sport so football and
+  // basketball are easy to tell apart at a glance. Within each sport the
+  // priority order is kept (playoffs, pinned top-5, live close, upcoming,
+  // blowouts, finals).
+  function sectionHTML(title, ordered, pinned) {
+    var html = '<div class="section-title">' + esc(title) + "</div>";
+    if (!ordered.length) { html += '<div class="empty">No games.</div>'; return html; }
+    SPORT_GROUP_ORDER.forEach(function (sport) {
+      var games = ordered.filter(function (g) { return g.sport === sport; });
+      if (!games.length) return;
+      html += '<div class="sport-title">' + esc(SPORT_LABELS[sport] || sport) + "</div>";
+      games.forEach(function (g) { html += gameRowHTML(g, pinned && g === pinned); });
+    });
+    return html;
+  }
+
+  function render(data) {
+    var app = document.getElementById("app");
+    if (!data.anyFeed) {
+      app.innerHTML = '<div class="error">Couldn\'t load scores from ESPN right now. Check your connection and tap Refresh.</div>';
+      return;
+    }
+    var html = "";
+    if (data.nascar) {
+      var d = dateFromYmd(data.nascar.date);
+      var isRaceDay = data.nascar.date === data.todayYmd;
+      html += '<div class="nascar"><div class="name">🏁 ' + esc(data.nascar.name) + (isRaceDay ? " — TODAY" : "") + '</div>' +
+        '<div class="when">NASCAR · ' + esc(shortDateOf(d)) + " · " + esc(data.nascar.network) + " · " + (data.nascar.time ? esc(data.nascar.time) : "Time TBA") + "</div></div>";
+    }
+    html += sectionHTML("TODAY", data.today.ordered, data.today.pinned);
+    html += sectionHTML("TOMORROW", data.tomorrow.ordered, data.tomorrow.pinned);
+    if (data.maryland.ordered.length) {
+      html += sectionHTML("MARYLAND", data.maryland.ordered, data.maryland.pinned);
+    }
+    app.innerHTML = html;
+    document.getElementById("updated").textContent = "Updated " + timeOf(new Date());
+    document.getElementById("date").textContent = shortDateOf(data.now).toUpperCase();
+  }
+
+  var timer = null;
+  async function refresh() {
+    var data = await loadAll();
+    render(data);
+  }
+  function start() {
+    document.getElementById("date").textContent = shortDateOf(new Date()).toUpperCase();
+    document.getElementById("refreshBtn").addEventListener("click", refresh);
+    refresh();
+    timer = setInterval(function () { refresh(); }, CONFIG.refreshSeconds * 1000);
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) refresh();
+    });
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();
+</script>
+</body>
+</html>
