@@ -59,7 +59,7 @@
   }
   .sport-title {
     font-size: 11px; font-weight: 800; letter-spacing: 0.08em;
-    color: var(--accent); margin: 14px 0 6px;
+    color: #FFFFFF; margin: 14px 0 6px;
   }
   .nascar {
     background: var(--card);
@@ -82,7 +82,7 @@
     color: inherit;
   }
   .game:active { background: #171E27; }
-  .line1 { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; line-height: 1.25; }
+  .line1 { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 16px; font-weight: 700; line-height: 1.25; }
   .line1 img { width: 22px; height: 22px; object-fit: contain; flex: none; }
   .line1 .vs { color: var(--muted); font-weight: 600; flex: none; }
   .line1 .rank { color: var(--accent); font-weight: 800; margin-right: 4px; flex: none; }
@@ -209,6 +209,20 @@
     llbScores: "https://site.api.espn.com/apis/site/v2/sports/baseball/llb/scoreboard",
   };
 
+  // Fox Sports "Bifrost" API, used to deep-link FOX/FS1 games into the Fox
+  // Sports iOS app. Fox game pages live at foxsports.com and open in the
+  // app via universal links, but the URL carries a Fox-internal event ID
+  // that ESPN's feed does not provide — so the page resolves it here at
+  // load time by matching teams + date against Fox's own scoreboard.
+  // The key below is Fox's public data-tier key, shipped in Fox's own web
+  // bundle (not a secret). CORS is open (Access-Control-Allow-Origin: *),
+  // so the page can call it straight from the browser. If the Fox lookup
+  // fails or finds no match, the row keeps its ESPN link.
+  var FOX_API_KEY = "jE7yBJVRNAwdDesMgTzTXUUSx1It41Fq";
+  var FOX_API_BASE = "https://api.foxsports.com/bifrost/v1";
+  var FOX_WEB = "https://www.foxsports.com";
+  var FOX_SPORT_SLUGS = { CFB: "cfb", CBB: "cbk", MLB: "mlb" };
+
   var TZ = "America/New_York";
   function ymdOf(d) {
     // Local calendar date in Eastern time, as yyyy-MM-dd.
@@ -334,20 +348,14 @@
     };
   }
 
-  function teamLabel(t, useAbbr) {
-    var name = useAbbr ? t.abbr : t.name;
-    return (t.rank ? "#" + t.rank + " " : "") + name;
-  }
   // Each team's part of the matchup, with the rank kept separate from the
   // name so the rank can be styled on its own (gold, so it stands out).
-  // The length check counts the rank and the record too, so a game whose
-  // names plus rank plus records would crowd the row falls back to
-  // abbreviations.
+  // The page always shows full team names — abbreviations are only for
+  // the small widget, where space is tight. (A very long matchup wraps
+  // within the card instead of overflowing.)
   function matchupParts(g) {
-    var full = g.teams.map(function (t) { return teamLabel(t, false) + (t.record ? " " + t.record : ""); }).join(" vs ");
-    var useAbbr = g.sport !== "LLWS" && full.length > 20;
     return g.teams.map(function (t) {
-      return { rank: t.rank || null, name: useAbbr ? t.abbr : t.name, record: t.record || null };
+      return { rank: t.rank || null, name: t.name, record: t.record || null };
     });
   }
   function logoUrl(sport, teamId) {
@@ -366,6 +374,113 @@
     return g.teams.some(function (t) {
       return t.abbr === "MD" || String(t.name).indexOf("Maryland") !== -1;
     });
+  }
+
+  function normName(s) {
+    return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+  function isFoxBroadcast(broadcasts) {
+    for (var i = 0; i < broadcasts.length; i++) {
+      var b = String(broadcasts[i]).trim().toUpperCase();
+      if (b === "FOX" || b === "FS1") return true;
+    }
+    return false;
+  }
+
+  // Add one Fox scoreboard segment's FOX/FS1 games to the map, keyed by
+  // "AWAY|HOME|YYYY-MM-DD" (team abbreviations, Eastern date) to the Fox
+  // game page URL. Two keys per game are stored (abbreviations and
+  // normalized long names) because ESPN and Fox occasionally abbreviate a
+  // team differently; the lookup tries both, forward and reversed, and
+  // falls back to the ESPN link on any miss.
+  function foxEventsToMap(segmentData, map) {
+    if (!segmentData || !segmentData.sectionList) return;
+    segmentData.sectionList.forEach(function (sec) {
+      (sec.events || []).forEach(function (ev) {
+        if (ev.tvStation !== "FOX" && ev.tvStation !== "FS1") return;
+        var webUrl = ev.entityLink && ev.entityLink.webUrl;
+        if (!webUrl) return;
+        var up = ev.upperTeam || {}, low = ev.lowerTeam || {};
+        var ymd = ymdOf(new Date(ev.eventTime));
+        var url = FOX_WEB + webUrl;
+        var abbrKey = String(up.name || "").toUpperCase() + "|" + String(low.name || "").toUpperCase() + "|" + ymd;
+        var nameKey = normName(up.longName) + "|" + normName(low.longName) + "|" + ymd;
+        map[abbrKey] = url;
+        map[nameKey] = url;
+        // Reversed (home|away) as a safety net in case one provider
+        // lists the teams in the opposite order.
+        map[String(low.name || "").toUpperCase() + "|" + String(up.name || "").toUpperCase() + "|" + ymd] = url;
+        map[normName(low.longName) + "|" + normName(up.longName) + "|" + ymd] = url;
+      });
+    });
+  }
+
+  // Week IDs (current week + next) for a weekly sport like CFB, from the
+  // scoreboard/main response. Today and tomorrow can straddle a week
+  // boundary, so both weeks are fetched.
+  function foxWeekIds(main) {
+    var sels = [];
+    ((main && main.selectionGroupList) || []).forEach(function (grp) {
+      (grp.selectionList || []).forEach(function (s) { sels.push(s); });
+    });
+    var cur = main && main.currentSelectionId;
+    for (var i = 0; i < sels.length; i++) {
+      if (sels[i].id === cur) {
+        var ids = [sels[i].id];
+        if (i + 1 < sels.length) ids.push(sels[i + 1].id);
+        return ids;
+      }
+    }
+    return [];
+  }
+
+  // Resolve Fox game URLs for the sports that have FOX/FS1 games today or
+  // tomorrow. Returns a map (see foxEventsToMap). CFB is weekly, so it
+  // goes through scoreboard/main to find the week segments; CBB and MLB
+  // are daily, so their segment URLs are built straight from the date.
+  async function fetchFoxLinks(sports, todayYmd, tomorrowYmd) {
+    var map = {};
+    var jobs = [];
+    function segUrl(slug, segmentId, groupId) {
+      return FOX_API_BASE + "/" + slug + "/scoreboard/segment/" + segmentId +
+        "?groupId=" + groupId + "&apikey=" + FOX_API_KEY + "&api-version=1.1";
+    }
+    sports.forEach(function (sport) {
+      var slug = FOX_SPORT_SLUGS[sport];
+      if (!slug) return;
+      if (sport === "CFB") {
+        jobs.push((async function () {
+          var main = await fetchJSON(FOX_API_BASE + "/cfb/scoreboard/main?apikey=" + FOX_API_KEY + "&api-version=1.1");
+          var weeks = foxWeekIds(main);
+          var segs = await Promise.all(weeks.map(function (w) { return fetchJSON(segUrl("cfb", w, 2)); }));
+          segs.forEach(function (s) { foxEventsToMap(s, map); });
+        })());
+      } else {
+        [todayYmd, tomorrowYmd].forEach(function (ymd) {
+          jobs.push((async function () {
+            var seg = await fetchJSON(segUrl(slug, ymd.replace(/-/g, ""), 2));
+            foxEventsToMap(seg, map);
+          })());
+        });
+      }
+    });
+    await Promise.all(jobs);
+    return map;
+  }
+
+  function foxLinkFor(g, map) {
+    if (!g.teams || g.teams.length < 2) return null;
+    var a = g.teams[0], b = g.teams[1];
+    var keys = [
+      String(a.abbr || "").toUpperCase() + "|" + String(b.abbr || "").toUpperCase() + "|" + g.ymd,
+      normName(a.name) + "|" + normName(b.name) + "|" + g.ymd,
+      String(b.abbr || "").toUpperCase() + "|" + String(a.abbr || "").toUpperCase() + "|" + g.ymd,
+      normName(b.name) + "|" + normName(a.name) + "|" + g.ymd,
+    ];
+    for (var i = 0; i < keys.length; i++) {
+      if (map[keys[i]]) return map[keys[i]];
+    }
+    return null;
   }
 
   function nextNascar(todayYmd) {
@@ -516,6 +631,22 @@
     }
     collectMaryland(cfbToday, cfbRanks, "CFB");
     collectMaryland(cfbTom, cfbRanks, "CFB");
+    // Fox deep links: if any game today or tomorrow is on FOX/FS1, resolve
+    // its Fox game page URL so tapping it opens the Fox Sports app instead
+    // of ESPN. Games with no Fox match keep their ESPN link.
+    var allGames = todayGames.concat(tomorrowGames).concat(mdGames);
+    var foxSports = {};
+    allGames.forEach(function (g) { if (isFoxBroadcast(g.broadcasts)) foxSports[g.sport] = true; });
+    var foxSportList = Object.keys(foxSports);
+    if (foxSportList.length) {
+      var foxMap = await fetchFoxLinks(foxSportList, todayYmd, tomorrowYmd);
+      allGames.forEach(function (g) {
+        if (isFoxBroadcast(g.broadcasts)) {
+          var fl = foxLinkFor(g, foxMap);
+          if (fl) g.foxLink = fl;
+        }
+      });
+    }
     return {
       today: orderGames(todayGames),
       tomorrow: orderGames(tomorrowGames),
@@ -554,7 +685,10 @@
     var pinTag = pinned ? '<span class="pin">TOP 5</span>' : "";
     var inner = '<div class="line1">' + cells + pinTag + "</div>" +
       '<div class="line2"><span class="sub">' + esc(sub) + '</span><span class="right ' + rightCls + '">' + right + "</span></div>";
-    if (g.link) return '<a class="game" href="' + esc(g.link) + '" target="_blank" rel="noopener">' + inner + "</a>";
+    // Fox-broadcast games link to their Fox game page (opens the Fox Sports
+    // app on iOS); everything else links to its ESPN boxscore/gamecast.
+    var href = g.foxLink || g.link;
+    if (href) return '<a class="game" href="' + esc(href) + '" target="_blank" rel="noopener">' + inner + "</a>";
     return '<div class="game">' + inner + "</div>";
   }
 
