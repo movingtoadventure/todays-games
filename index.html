@@ -520,23 +520,14 @@
   function isTop5Matchup(g) {
     return g.teams.length === 2 && g.teams.every(function (t) { return t.rank && t.rank <= 5; });
   }
-  // A game kicking off after 9:30 PM local is "late" — it should not sit
-  // at the top of the Best games list in the morning when earlier games
-  // are still to come (Michael, 2026-11-14: Texas/LSU at 7:30 PM should
-  // show instead of Utah at 10:30 PM). Only upcoming games are demoted;
-  // a late game that is live is happening now and keeps its normal place.
-  // Same rule as the Scriptable widget, so Best games means the same
-  // thing in both places.
-  function isLateKickoff(g) {
-    if (g.state !== "pre") return false;
-    var h = g.date.getHours(), m = g.date.getMinutes();
-    return h > 21 || (h === 21 && m > 30);
-  }
+  // NOTE: the widget demotes very late kickoffs (after 9:30 PM) so a
+  // 10:30 PM game does not take one of its 3 slots in the morning. That
+  // rule is widget-only (Michael, 2026-11-14): on this full page there
+  // is room for every game, so Best games ranks by true priority and a
+  // late ranked-vs-ranked game like Utah–Arizona stays near the top.
   function watchCompare(a, b) {
     var so = (SPORT_ORDER[a.sport] || 0) - (SPORT_ORDER[b.sport] || 0);
     if (so) return so;
-    var late = (isLateKickoff(a) ? 1 : 0) - (isLateKickoff(b) ? 1 : 0);
-    if (late) return late;
     if (a.sport === "MLB") {
       var mwp = combinedWinPct(b) - combinedWinPct(a);
       if (mwp) return mwp;
@@ -770,12 +761,23 @@
       byTime.forEach(function (g) { html += gameRowHTML(g, pinned && g === pinned); });
       return html;
     }
+    // Live and upcoming games first, grouped by sport. Completed games
+    // go to the very bottom of the section under their own heading
+    // (Michael, 2026-11-14), so a finished game never sits above a game
+    // still to come. Each row's sub-line already names its sport, so the
+    // Completed group needs no sport subheadings.
+    var active = list.filter(function (g) { return g.state !== "post"; });
+    var finals = list.filter(function (g) { return g.state === "post"; });
     SPORT_GROUP_ORDER.forEach(function (sport) {
-      var games = list.filter(function (g) { return g.sport === sport; });
+      var games = active.filter(function (g) { return g.sport === sport; });
       if (!games.length) return;
       if (filter === "ALL") html += '<div class="sport-title">' + esc(SPORT_LABELS[sport] || sport) + "</div>";
       games.forEach(function (g) { html += gameRowHTML(g, pinned && g === pinned); });
     });
+    if (finals.length) {
+      html += '<div class="sport-title">Completed</div>';
+      finals.forEach(function (g) { html += gameRowHTML(g, pinned && g === pinned); });
+    }
     return html;
   }
 
