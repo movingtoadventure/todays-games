@@ -740,7 +740,7 @@
   // The choice survives the 60s auto-refresh and future visits
   // (localStorage), and it applies to the Today, Tomorrow and Maryland
   // sections alike.
-  var SORT_LABELS = { best: "Best games", time: "Kickoff time" };
+  var SORT_LABELS = { best: "Best games", time: "Start time" };
   var currentSort = "best";
   try {
     var savedSort = window.localStorage.getItem("gamesSort");
@@ -850,7 +850,7 @@
       filterDirty = true;
       if (lastData) render(lastData);
     });
-    // Sort toggle (Best games / Kickoff time). The buttons are static, so
+    // Sort toggle (Best games / Start time). The buttons are static, so
     // they are built once here; tapping one re-sorts the lists in place
     // and remembers the choice for future visits.
     renderSort();
