@@ -94,6 +94,7 @@
   .line2 .sub { font-size: 13px; color: var(--muted); }
   .line2 .right { font-size: 13px; font-weight: 700; white-space: nowrap; }
   .line2 .right.live { color: var(--live); }
+  .line2 .right .score { color: #fff; font-size: 14px; }
   .empty { color: var(--muted); font-size: 15px; padding: 12px 2px; }
   .error { color: var(--muted); font-size: 14px; padding: 16px 2px; line-height: 1.5; }
   footer { margin-top: 24px; font-size: 12px; color: var(--faint); line-height: 1.6; }
@@ -313,6 +314,7 @@
 
   function parseEvent(ev, ranks, sport) {
     var comp = (ev.competitions && ev.competitions[0]) || {};
+    var state = (ev.status && ev.status.type && ev.status.type.state) || "pre";
     var teams = (comp.competitors || []).map(function (c) {
       var curated = (c.curatedRank && c.curatedRank.current) || null;
       var fallbackRank = (curated && curated >= 1 && curated <= 25) ? curated : null;
@@ -324,8 +326,10 @@
         name: nm,
         rank: ranks ? (ranks[String(c.team.id)] || fallbackRank) : fallbackRank,
         // ESPN returns score "0" for games that have not started — treat
-        // pre-game scores as null so they never render as 0–0.
-        score: (c.score !== undefined && c.score !== null && String(c.score) !== "0") ? c.score : null,
+        // a pre-game 0 as null so it never renders as 0–0. But a live or
+        // final 0 is a real score and must show: a live 0–0 reads
+        // "0 - 0", not dashes (Michael, 2026-11-14).
+        score: (c.score !== undefined && c.score !== null && (state !== "pre" || String(c.score) !== "0")) ? c.score : null,
         homeAway: c.homeAway || "",
         conf: String(c.team.conferenceId || ""),
         winPct: winPctOf(c.records),
@@ -335,7 +339,6 @@
     teams.sort(function (a, b) { return (a.homeAway === "away" ? -1 : 1); });
     var broadcasts = [];
     (comp.broadcasts || []).forEach(function (b) { (b.names || []).forEach(function (n) { broadcasts.push(n); }); });
-    var state = (ev.status && ev.status.type && ev.status.type.state) || "pre";
     var detail = (ev.status && ev.status.type && ev.status.type.shortDetail) || "";
     var date = new Date(ev.date);
     var gameLink = null;
@@ -690,12 +693,15 @@
     if (g.sport === "LLWS" && g.round) sub += " · " + esc(g.round);
     var right = "", rightCls = "";
     if (g.state === "in") {
-      var score = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join("–");
-      right = esc(score) + "  ● " + esc(g.detail);
+      // The score is wrapped in its own span so it stands out from the
+      // clock: white and bold, while the quarter/clock stays green.
+      // A live 0–0 reads "0 - 0", never dashes (Michael, 2026-11-14).
+      var score = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join(" - ");
+      right = '<span class="score">' + esc(score) + '</span>  ● ' + esc(g.detail);
       rightCls = "live";
     } else if (g.state === "post") {
-      var fscore = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join("–");
-      right = esc(fscore) + " · Final";
+      var fscore = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join(" - ");
+      right = '<span class="score">' + esc(fscore) + '</span> · Final';
     } else {
       right = esc(g.time);
     }
