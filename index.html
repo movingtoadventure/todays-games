@@ -92,8 +92,10 @@
   .line1 .pin { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 0.05em; margin-left: auto; white-space: nowrap; }
   .line2 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 4px; }
   .line2 .sub { font-size: 13px; color: var(--muted); }
-  .line2 .right { font-size: 13px; font-weight: 700; white-space: nowrap; }
+  .line2 .right { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; font-weight: 700; white-space: nowrap; line-height: 1.3; }
   .line2 .right.live { color: var(--live); }
+  .line2 .right .clock { color: var(--live); }
+  .line2 .right .status { color: var(--muted); font-weight: 400; }
   .line2 .right .score { color: #fff; font-size: 14px; }
   .empty { color: var(--muted); font-size: 15px; padding: 12px 2px; }
   .error { color: var(--muted); font-size: 14px; padding: 16px 2px; line-height: 1.5; }
@@ -693,15 +695,16 @@
     if (g.sport === "LLWS" && g.round) sub += " · " + esc(g.round);
     var right = "", rightCls = "";
     if (g.state === "in") {
-      // The score is wrapped in its own span so it stands out from the
-      // clock: white and bold, while the quarter/clock stays green.
-      // A live 0–0 reads "0 - 0", never dashes (Michael, 2026-11-14).
+      // The score sits underneath the time remaining: the clock on top
+      // (green, with the live dot) and the score below it in bold white,
+      // so the number reads clearly at a glance (Michael, 2026-11-14).
+      // A live 0–0 reads "0 - 0", never dashes.
       var score = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join(" - ");
-      right = '<span class="score">' + esc(score) + '</span>  ● ' + esc(g.detail);
+      right = '<span class="clock">● ' + esc(g.detail) + '</span><span class="score">' + esc(score) + "</span>";
       rightCls = "live";
     } else if (g.state === "post") {
       var fscore = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join(" - ");
-      right = '<span class="score">' + esc(fscore) + '</span> · Final';
+      right = '<span class="status">Final</span><span class="score">' + esc(fscore) + "</span>";
     } else {
       right = esc(g.time);
     }
