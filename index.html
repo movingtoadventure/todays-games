@@ -53,6 +53,8 @@
     cursor: pointer;
   }
   .filter-btn.active { background: var(--accent); color: #0B0F14; border-color: var(--accent); }
+  .sort-row { margin-top: 2px; align-items: center; }
+  .sort-label { font-size: 13px; color: var(--muted); font-weight: 700; margin-right: 2px; }
   .section-title {
     font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
     color: var(--muted); margin: 20px 0 8px;
@@ -109,6 +111,7 @@
     <button class="refresh" id="refreshBtn" type="button">Refresh</button>
   </div>
   <div class="filters" id="filters"></div>
+  <div class="filters sort-row" id="sortRow"></div>
   <div id="app"><div class="loading">Loading today's games…</div></div>
   <footer>Live scores from ESPN. Times Eastern. Refreshes every 60 seconds while games are live.</footer>
 </div>
@@ -706,13 +709,32 @@
   var filterSportsSig = "";
   var filterDirty = true;
 
-  // One day's games, grouped under a subheading per sport so football and
-  // basketball are easy to tell apart at a glance. Within each sport the
-  // priority order is kept (playoffs, pinned top-5, live close, upcoming,
-  // blowouts, finals). When a single sport is picked, a day with no games
-  // in that sport is hidden entirely instead of showing "No games.", and
-  // the sport subheading is skipped because the filter button already
-  // names the sport.
+  // Sort order for the game lists (Michael, 2026-11-14). "best" is the
+  // priority order (playoffs, pinned top-5, live close, upcoming, blowouts,
+  // finals, grouped by sport). "time" is a single chronological list per
+  // day, earliest kickoff first, across all sports — the day's schedule
+  // (football, basketball, baseball, Little League all by start time).
+  // The choice survives the 60s auto-refresh and future visits
+  // (localStorage), and it applies to the Today, Tomorrow and Maryland
+  // sections alike.
+  var SORT_LABELS = { best: "Best games", time: "Kickoff time" };
+  var currentSort = "best";
+  try {
+    var savedSort = window.localStorage.getItem("gamesSort");
+    if (savedSort === "time" || savedSort === "best") currentSort = savedSort;
+  } catch (e) {}
+
+  // One day's games. In "best" sort they are grouped under a subheading per
+  // sport so football and basketball are easy to tell apart at a glance,
+  // and within each sport the priority order is kept (playoffs, pinned
+  // top-5, live close, upcoming, blowouts, finals). In "time" sort the day
+  // is a single chronological list across all sports, earliest kickoff
+  // first — the day's schedule; each row's sub-line already names its
+  // sport ("CFB · ABC"), so no sport subheadings are needed. Same-start
+  // ties keep the priority order (Array sort is stable). When a single
+  // sport is picked, a day with no games in that sport is hidden entirely
+  // instead of showing "No games.", and the sport subheading is skipped
+  // because the filter button already names the sport.
   function sectionHTML(title, ordered, pinned, filter) {
     var list = filter === "ALL" ? ordered : ordered.filter(function (g) { return g.sport === filter; });
     if (!list.length) {
@@ -720,6 +742,11 @@
       return "";
     }
     var html = '<div class="section-title">' + esc(title) + "</div>";
+    if (currentSort === "time") {
+      var byTime = list.slice().sort(function (a, b) { return a.date - b.date; });
+      byTime.forEach(function (g) { html += gameRowHTML(g, pinned && g === pinned); });
+      return html;
+    }
     SPORT_GROUP_ORDER.forEach(function (sport) {
       var games = list.filter(function (g) { return g.sport === sport; });
       if (!games.length) return;
@@ -727,6 +754,14 @@
       games.forEach(function (g) { html += gameRowHTML(g, pinned && g === pinned); });
     });
     return html;
+  }
+
+  function renderSort() {
+    var btns = '<span class="sort-label">Sort by</span>';
+    ["best", "time"].forEach(function (s) {
+      btns += '<button class="filter-btn' + (currentSort === s ? " active" : "") + '" type="button" data-sort="' + s + '">' + esc(SORT_LABELS[s]) + "</button>";
+    });
+    document.getElementById("sortRow").innerHTML = btns;
   }
 
   function renderFilters(sports) {
@@ -790,6 +825,18 @@
       if (!sport || sport === currentFilter) return;
       currentFilter = sport;
       filterDirty = true;
+      if (lastData) render(lastData);
+    });
+    // Sort toggle (Best games / Kickoff time). The buttons are static, so
+    // they are built once here; tapping one re-sorts the lists in place
+    // and remembers the choice for future visits.
+    renderSort();
+    document.getElementById("sortRow").addEventListener("click", function (e) {
+      var sort = e.target && e.target.dataset ? e.target.dataset.sort : null;
+      if (!sort || sort === currentSort) return;
+      currentSort = sort;
+      try { window.localStorage.setItem("gamesSort", sort); } catch (err) {}
+      renderSort();
       if (lastData) render(lastData);
     });
     refresh();
