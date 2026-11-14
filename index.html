@@ -515,9 +515,23 @@
   function isTop5Matchup(g) {
     return g.teams.length === 2 && g.teams.every(function (t) { return t.rank && t.rank <= 5; });
   }
+  // A game kicking off after 9:30 PM local is "late" — it should not sit
+  // at the top of the Best games list in the morning when earlier games
+  // are still to come (Michael, 2026-11-14: Texas/LSU at 7:30 PM should
+  // show instead of Utah at 10:30 PM). Only upcoming games are demoted;
+  // a late game that is live is happening now and keeps its normal place.
+  // Same rule as the Scriptable widget, so Best games means the same
+  // thing in both places.
+  function isLateKickoff(g) {
+    if (g.state !== "pre") return false;
+    var h = g.date.getHours(), m = g.date.getMinutes();
+    return h > 21 || (h === 21 && m > 30);
+  }
   function watchCompare(a, b) {
     var so = (SPORT_ORDER[a.sport] || 0) - (SPORT_ORDER[b.sport] || 0);
     if (so) return so;
+    var late = (isLateKickoff(a) ? 1 : 0) - (isLateKickoff(b) ? 1 : 0);
+    if (late) return late;
     if (a.sport === "MLB") {
       var mwp = combinedWinPct(b) - combinedWinPct(a);
       if (mwp) return mwp;
