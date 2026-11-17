@@ -53,6 +53,25 @@
     cursor: pointer;
   }
   .filter-btn.active { background: var(--accent); color: #0B0F14; border-color: var(--accent); }
+  /* Week view (Michael, 2026-11-17): seven day tabs across the top
+     (today + 6 days). Tapping a day shows that day's games. The row
+     scrolls horizontally on narrow phones; the selected day is gold. */
+  .daytabs { display: flex; gap: 6px; overflow-x: auto; margin: 12px 0 4px; padding-bottom: 2px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .daytabs::-webkit-scrollbar { display: none; }
+  .day-btn {
+    background: var(--card);
+    color: var(--muted);
+    border: 1px solid var(--divider);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    flex: none;
+  }
+  .day-btn.active { background: var(--accent); color: #0B0F14; border-color: var(--accent); }
+  .day-btn.pending { opacity: 0.55; }
   .sort-row { margin-top: 2px; align-items: center; }
   .sort-label { font-size: 13px; color: var(--muted); font-weight: 700; margin-right: 2px; }
   .section-title {
@@ -119,6 +138,7 @@
     <span class="updated" id="updated"></span>
     <button class="refresh" id="refreshBtn" type="button">Refresh</button>
   </div>
+  <div class="daytabs" id="dayTabs"></div>
   <div class="filters" id="filters"></div>
   <div class="filters sort-row" id="sortRow"></div>
   <div id="app"><div class="loading">Loading today's games…</div></div>
@@ -511,11 +531,12 @@
     return [];
   }
 
-  // Resolve Fox game URLs for the sports that have FOX/FS1 games today or
-  // tomorrow. Returns a map (see foxEventsToMap). CFB is weekly, so it
-  // goes through scoreboard/main to find the week segments; CBB and MLB
-  // are daily, so their segment URLs are built straight from the date.
-  async function fetchFoxLinks(sports, todayYmd, tomorrowYmd) {
+  // Resolve Fox game URLs for the sports that have FOX/FS1 games. ymds is
+  // the list of Eastern dates to fetch daily segments for (CBB/MLB). CFB
+  // is weekly, so it goes through scoreboard/main to find the week
+  // segments; CBB and MLB are daily, so their segment URLs are built
+  // straight from each date.
+  async function fetchFoxLinks(sports, ymds) {
     var map = {};
     var jobs = [];
     function segUrl(slug, segmentId, groupId) {
@@ -533,7 +554,7 @@
           segs.forEach(function (s) { foxEventsToMap(s, map); });
         })());
       } else {
-        [todayYmd, tomorrowYmd].forEach(function (ymd) {
+        ymds.forEach(function (ymd) {
           jobs.push((async function () {
             var seg = await fetchJSON(segUrl(slug, ymd.replace(/-/g, ""), 2));
             foxEventsToMap(seg, map);
@@ -660,59 +681,53 @@
     } catch (e) { return null; }
   }
 
-  async function loadAll() {
-    var now = new Date();
-    var todayYmd = ymdOf(now);
-    var tomorrowYmd = ymdOf(new Date(now.getTime() + 24 * 60 * 60 * 1000));
-    // Fetch each scoreboard with an explicit dates= param for today AND
-    // tomorrow. The default scoreboard (no dates) only returns a subset —
-    // verified 2026-11-13: it missed the Wisconsin at Maryland football game
-    // and 2 ranked basketball games (Stonehill at Texas Tech, LSU at
-    // Gonzaga). Explicit dates return the complete slate for each day.
-    function sbUrl(base, ymd) { return base + "?dates=" + ymd.replace(/-/g, ""); }
+  async function fetchBoardsFor(dateStr) {
+    var compact = dateStr.replace(/-/g, "");
     var results = await Promise.all([
-      fetchJSON(sbUrl(URLS.cfbScores, todayYmd)), fetchJSON(sbUrl(URLS.cfbScores, tomorrowYmd)),
-      fetchJSON(URLS.cfbRanks),
-      fetchJSON(sbUrl(URLS.cbbScores, todayYmd)), fetchJSON(sbUrl(URLS.cbbScores, tomorrowYmd)),
-      fetchJSON(URLS.cbbRanks),
-      fetchJSON(sbUrl(URLS.mlbScores, todayYmd)), fetchJSON(sbUrl(URLS.mlbScores, tomorrowYmd)),
-      fetchJSON(sbUrl(URLS.llbScores, todayYmd)), fetchJSON(sbUrl(URLS.llbScores, tomorrowYmd)),
-      fetchJSON(sbUrl(URLS.nflScores, todayYmd)), fetchJSON(sbUrl(URLS.nflScores, tomorrowYmd)),
+      fetchJSON(URLS.cfbScores + "?dates=" + compact),
+      fetchJSON(URLS.cbbScores + "?dates=" + compact),
+      fetchJSON(URLS.mlbScores + "?dates=" + compact),
+      fetchJSON(URLS.llbScores + "?dates=" + compact),
+      fetchJSON(URLS.nflScores + "?dates=" + compact),
     ]);
-    var cfbToday = results[0], cfbTom = results[1], cfbR = results[2],
-        cbbToday = results[3], cbbTom = results[4], cbbR = results[5],
-        mlbToday = results[6], mlbTom = results[7],
-        llbToday = results[8], llbTom = results[9],
-        nflToday = results[10], nflTom = results[11];
-    var cfbRanks = rankMap(cfbR, "Playoff");
-    var cbbRanks = rankMap(cbbR, "AP Top 25");
-    var todayGames = [], tomorrowGames = [], mdGames = [];
-    function collect(scoreboard, ranks, sport, keep) {
-      if (!scoreboard || !scoreboard.events) return;
-      scoreboard.events.forEach(function (ev) {
+    utcBoards[dateStr] = { cfb: results[0], cbb: results[1], mlb: results[2], llb: results[3], nfl: results[4] };
+  }
+
+  // Build one Eastern day's games from the two dates= fetches that cover
+  // it (its own date and the next one, for late-night games). Returns
+  // { ymd, ordered, maryland } where ordered/maryland are orderGames()
+  // results.
+  function buildDay(ymd) {
+    var nextYmd = addDaysYmd(ymd, 1);
+    var games = [], md = [];
+    function collectFrom(dateStr, ranks, sport, keep) {
+      var sb = utcBoards[dateStr];
+      if (!sb) return;
+      var board = sb[SPORT_BOARD_KEY[sport]];
+      if (!board || !board.events) return;
+      board.events.forEach(function (ev) {
         var g = parseEvent(ev, ranks, sport);
         g.sport = sport;
         if (!keep(g, ev)) return;
-        if (g.ymd === todayYmd) todayGames.push(g);
-        else if (g.ymd === tomorrowYmd) tomorrowGames.push(g);
+        if (g.ymd === ymd) games.push(g);
       });
     }
-    collect(cfbToday, cfbRanks, "CFB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
-    collect(cfbTom, cfbRanks, "CFB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
-    collect(cbbToday, cbbRanks, "CBB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
-    collect(cbbTom, cbbRanks, "CBB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
-    collect(mlbToday, null, "MLB", function (g) {
+    collectFrom(ymd, cfbRanks, "CFB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
+    collectFrom(nextYmd, cfbRanks, "CFB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
+    collectFrom(ymd, cbbRanks, "CBB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
+    collectFrom(nextYmd, cbbRanks, "CBB", function (g) { return g.teams.some(function (t) { return t.rank; }); });
+    collectFrom(ymd, null, "MLB", function (g) {
       return g.teams.some(function (t) { return t.abbr === "BAL"; }) || isNationalTV(g.broadcasts);
     });
-    collect(mlbTom, null, "MLB", function (g) {
+    collectFrom(nextYmd, null, "MLB", function (g) {
       return g.teams.some(function (t) { return t.abbr === "BAL"; }) || isNationalTV(g.broadcasts);
     });
-    collect(llbToday, null, "LLWS", function (g, ev) {
+    collectFrom(ymd, null, "LLWS", function (g, ev) {
       var comp = (ev.competitions && ev.competitions[0]) || {};
       var notes = comp.notes || [];
       return notes.some(function (n) { return String(n.headline || "").indexOf("Little League Baseball World Series") !== -1; });
     });
-    collect(llbTom, null, "LLWS", function (g, ev) {
+    collectFrom(nextYmd, null, "LLWS", function (g, ev) {
       var comp = (ev.competitions && ev.competitions[0]) || {};
       var notes = comp.notes || [];
       return notes.some(function (n) { return String(n.headline || "").indexOf("Little League Baseball World Series") !== -1; });
@@ -721,49 +736,121 @@
     // live close). On the page they appear in their own group below the
     // other sports, and the NFL filter button only shows when NFL games
     // are in the lists.
-    collect(nflToday, null, "NFL", function (g) { return isGoodNflGame(g); });
-    collect(nflTom, null, "NFL", function (g) { return isGoodNflGame(g); });
+    collectFrom(ymd, null, "NFL", function (g) { return isGoodNflGame(g); });
+    collectFrom(nextYmd, null, "NFL", function (g) { return isGoodNflGame(g); });
     // Maryland football, even when unranked — the full view includes it.
     // (Ranked Maryland games already appear in the main lists; this section
     // only shows the ones that would otherwise be missing.)
-    function collectMaryland(scoreboard, ranks, sport) {
-      if (!scoreboard || !scoreboard.events) return;
-      scoreboard.events.forEach(function (ev) {
-        var g = parseEvent(ev, ranks, sport);
-        g.sport = sport;
+    function collectMarylandFrom(dateStr) {
+      var sb = utcBoards[dateStr];
+      if (!sb || !sb.cfb || !sb.cfb.events) return;
+      sb.cfb.events.forEach(function (ev) {
+        var g = parseEvent(ev, cfbRanks, "CFB");
+        g.sport = "CFB";
         if (!isMaryland(g)) return;
-        if (g.ymd !== todayYmd && g.ymd !== tomorrowYmd) return;
-        var inMain = (g.ymd === todayYmd ? todayGames : tomorrowGames).some(function (x) { return x.id === g.id; });
-        if (!inMain) mdGames.push(g);
+        if (g.ymd !== ymd) return;
+        var inMain = games.some(function (x) { return x.id === g.id; });
+        if (!inMain) md.push(g);
       });
     }
-    collectMaryland(cfbToday, cfbRanks, "CFB");
-    collectMaryland(cfbTom, cfbRanks, "CFB");
-    // Fox deep links: if any game today or tomorrow is on FOX/FS1, resolve
-    // its Fox game page URL so tapping it opens the Fox Sports app instead
-    // of ESPN. Games with no Fox match keep their ESPN link.
-    var allGames = todayGames.concat(tomorrowGames).concat(mdGames);
+    collectMarylandFrom(ymd);
+    collectMarylandFrom(nextYmd);
+    return { ymd: ymd, ordered: orderGames(games), maryland: orderGames(md) };
+  }
+
+  // Attach Fox deep links to a list of built days. Fox-broadcast games
+  // link to their Fox game page (opens the Fox Sports app) instead of
+  // ESPN; games with no Fox match keep their ESPN link.
+  async function resolveFoxForDays(dayObjs, ymds) {
+    var allGames = [];
+    dayObjs.forEach(function (dayObj) {
+      allGames = allGames.concat(dayObj.ordered.ordered).concat(dayObj.maryland.ordered);
+    });
     var foxSports = {};
     allGames.forEach(function (g) { if (isFoxBroadcast(g.broadcasts)) foxSports[g.sport] = true; });
     var foxSportList = Object.keys(foxSports);
-    if (foxSportList.length) {
-      var foxMap = await fetchFoxLinks(foxSportList, todayYmd, tomorrowYmd);
-      allGames.forEach(function (g) {
-        if (isFoxBroadcast(g.broadcasts)) {
-          var fl = foxLinkFor(g, foxMap);
-          if (fl) g.foxLink = fl;
-        }
-      });
+    if (!foxSportList.length) return;
+    var foxMap = await fetchFoxLinks(foxSportList, ymds);
+    allGames.forEach(function (g) {
+      if (isFoxBroadcast(g.broadcasts)) {
+        var fl = foxLinkFor(g, foxMap);
+        if (fl) g.foxLink = fl;
+      }
+    });
+  }
+
+  function recomputeAnyFeed() {
+    week.anyFeed = Object.keys(utcBoards).some(function (k) {
+      var b = utcBoards[k];
+      return b && (b.cfb || b.cbb || b.mlb || b.llb || b.nfl);
+    });
+  }
+
+  // Stage 1: today's boards (today + tomorrow, for late-night games) and
+  // the rankings. Renders today as soon as it is ready.
+  async function initWeek() {
+    var now = new Date();
+    week.todayYmd = ymdOf(now);
+    week.now = now;
+    dayYmds = [];
+    for (var i = 0; i < WEEK_DAYS; i++) dayYmds.push(addDaysYmd(week.todayYmd, i));
+    currentDay = 0;
+    await Promise.all([
+      fetchBoardsFor(dayYmds[0]),
+      fetchBoardsFor(dayYmds[1]),
+      fetchJSON(URLS.cfbRanks).then(function (r) { cfbRanks = rankMap(r, "Playoff"); }),
+      fetchJSON(URLS.cbbRanks).then(function (r) { cbbRanks = rankMap(r, "AP Top 25"); }),
+    ]);
+    recomputeAnyFeed();
+    week.nascar = nextNascar(week.todayYmd);
+    dayData[dayYmds[0]] = buildDay(dayYmds[0]);
+    await resolveFoxForDays([dayData[dayYmds[0]]], [dayYmds[0], dayYmds[1]]);
+    render();
+    // Stage 2: the rest of the week, in the background.
+    loadRemainingDays();
+  }
+
+  // Stage 2: fetch the remaining dates (two per batch, so one burst
+  // doesn't trip ESPN's rate limit), build days 1–6, resolve their Fox
+  // links, and re-render.
+  async function loadRemainingDays() {
+    var extra = addDaysYmd(dayYmds[6], 1);
+    var needed = dayYmds.slice(2).concat([extra]);
+    for (var i = 0; i < needed.length; i += 2) {
+      var batch = needed.slice(i, i + 2);
+      await Promise.all(batch.map(function (d) { return fetchBoardsFor(d); }));
     }
-    return {
-      today: orderGames(todayGames),
-      tomorrow: orderGames(tomorrowGames),
-      maryland: orderGames(mdGames),
-      nascar: nextNascar(todayYmd),
-      todayYmd: todayYmd,
-      now: now,
-      anyFeed: !!(cfbToday || cfbTom || cbbToday || cbbTom || mlbToday || mlbTom || llbToday || llbTom || nflToday || nflTom),
-    };
+    var later = [];
+    for (var d = 1; d < WEEK_DAYS; d++) {
+      var dayObj = buildDay(dayYmds[d]);
+      dayData[dayYmds[d]] = dayObj;
+      later.push(dayObj);
+    }
+    recomputeAnyFeed();
+    await resolveFoxForDays(later, dayYmds);
+    render();
+  }
+
+  // Refresh only the selected day (and the rankings); other days keep
+  // their cached data. A midnight rollover rebuilds the whole week.
+  async function refresh() {
+    if (!dayYmds.length) return;
+    var now = new Date();
+    if (ymdOf(now) !== dayYmds[0]) {
+      if (typeof location !== "undefined" && location.reload) location.reload();
+      return;
+    }
+    var ymd = dayYmds[currentDay];
+    var next = addDaysYmd(ymd, 1);
+    await Promise.all([
+      fetchBoardsFor(ymd),
+      fetchBoardsFor(next),
+      fetchJSON(URLS.cfbRanks).then(function (r) { cfbRanks = rankMap(r, "Playoff"); }),
+      fetchJSON(URLS.cbbRanks).then(function (r) { cbbRanks = rankMap(r, "AP Top 25"); }),
+    ]);
+    dayData[ymd] = buildDay(ymd);
+    await resolveFoxForDays([dayData[ymd]], [ymd, next]);
+    render();
   }
 
   // ESPN-style game card (restyled 2026-11-16): a header row with the
@@ -821,9 +908,59 @@
   // happening, matching the rule that LLWS UI stays hidden out of season.
   var FILTER_LABELS = { ALL: "All", CFB: "Football", CBB: "Basketball", MLB: "Baseball", LLWS: "Little League", NFL: "NFL" };
   var currentFilter = "ALL";
-  var lastData = null;
   var filterSportsSig = "";
   var filterDirty = true;
+
+  // ---------- WEEK VIEW (Michael, 2026-11-17) ----------
+  // Seven day tabs across the top (today + 6 days). Tapping a day shows
+  // that day's games; the sport filter and sort apply to the selected day
+  // and keep their choice when switching days. Each day's games are
+  // fetched with explicit dates= params — the default scoreboard feed is
+  // unreliable (the widget's no-games bug, 2026-11-17: it returned almost
+  // nothing for today), so every day is fetched by date.
+  var WEEK_DAYS = 7;
+  var dayYmds = [];      // 7 Eastern ymd strings, index 0 = today
+  var dayData = {};      // ymd -> { ordered, pinned, maryland } (absent while loading)
+  var currentDay = 0;    // selected day index
+  var week = { todayYmd: null, nascar: null, anyFeed: false, now: null };
+  var cfbRanks = {}, cbbRanks = {};
+  // Raw scoreboard JSONs by the dates= string they were fetched with.
+  // A day's games come from two fetches (its own date and the next one):
+  // a game late at night Eastern (e.g. 11 PM) falls on the next UTC date,
+  // so its Eastern day is only covered by fetching both.
+  var utcBoards = {};    // dateStr -> { cfb, cbb, mlb, llb, nfl }
+  var SPORT_BOARD_KEY = { CFB: "cfb", CBB: "cbb", MLB: "mlb", LLWS: "llb", NFL: "nfl" };
+
+  // Calendar-date arithmetic on a yyyy-MM-dd string (no timezone drift).
+  function addDaysYmd(ymd, n) {
+    var p = ymd.split("-");
+    var d = new Date(Date.UTC(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10) + n, 12, 0, 0));
+    var m = String(d.getUTCMonth() + 1), day = String(d.getUTCDate());
+    return d.getUTCFullYear() + "-" + (m.length < 2 ? "0" + m : m) + "-" + (day.length < 2 ? "0" + day : day);
+  }
+  // Tab label for a day: "Today 11/17" for today, "Wed 11/18" otherwise.
+  function dayTabLabel(ymd, idx) {
+    var p = ymd.split("-");
+    var md = parseInt(p[1], 10) + "/" + parseInt(p[2], 10);
+    if (idx === 0) return "Today " + md;
+    var d = new Date(Date.UTC(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10), 12, 0, 0));
+    var wd = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short" }).format(d);
+    return wd + " " + md;
+  }
+  // Long section title for a day: "TODAY", "TOMORROW", or "WEDNESDAY, NOVEMBER 18".
+  function dayTitle(idx) {
+    if (idx === 0) return "TODAY";
+    if (idx === 1) return "TOMORROW";
+    var p = dayYmds[idx].split("-");
+    var d = new Date(Date.UTC(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10), 12, 0, 0));
+    return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }).format(d).toUpperCase();
+  }
+  // Short label for messages: "Today", "Tomorrow", or "Wed 11/18".
+  function dayShortLabel(idx) {
+    if (idx === 0) return "Today";
+    if (idx === 1) return "Tomorrow";
+    return dayTabLabel(dayYmds[idx], idx);
+  }
 
   // Sort order for the game lists (Michael, 2026-11-14). "best" is the
   // priority order (playoffs, pinned top-5, live close, upcoming, blowouts,
@@ -891,19 +1028,41 @@
     document.getElementById("sortRow").innerHTML = btns;
   }
 
+  // The filter buttons reflect the selected day's sports. The current
+  // filter's button stays visible even on a day where that sport has no
+  // games, so the choice stays visible (and the empty message below
+  // explains it) instead of silently vanishing.
   function renderFilters(sports) {
     var btns = '<button class="filter-btn' + (currentFilter === "ALL" ? " active" : "") + '" type="button" data-sport="ALL">All</button>';
     SPORT_GROUP_ORDER.forEach(function (sport) {
-      if (!sports[sport]) return;
+      if (!sports[sport] && sport !== currentFilter) return;
       btns += '<button class="filter-btn' + (currentFilter === sport ? " active" : "") + '" type="button" data-sport="' + sport + '">' + esc(FILTER_LABELS[sport] || sport) + "</button>";
     });
     document.getElementById("filters").innerHTML = btns;
   }
 
-  function render(data) {
-    lastData = data;
+  function renderTabs() {
+    var btns = "";
+    dayYmds.forEach(function (ymd, i) {
+      var loaded = !!dayData[ymd];
+      btns += '<button class="day-btn' + (i === currentDay ? " active" : "") + (loaded ? "" : " pending") + '" type="button" data-day="' + i + '">' + esc(dayTabLabel(ymd, i)) + "</button>";
+    });
+    document.getElementById("dayTabs").innerHTML = btns;
+  }
+
+  // Renders the selected day. The filter and sort choices survive day
+  // switches, and the NASCAR banner (relative to today, not the selected
+  // day) stays at the top whenever a race is near.
+  function render() {
+    renderTabs();
     var app = document.getElementById("app");
-    if (!data.anyFeed) {
+    var ymd = dayYmds[currentDay];
+    var dayObj = ymd ? dayData[ymd] : null;
+    if (!dayObj) {
+      app.innerHTML = '<div class="loading">Loading games for ' + esc(dayShortLabel(currentDay)) + '…</div>';
+      return;
+    }
+    if (!week.anyFeed) {
       app.innerHTML = '<div class="error">Couldn\'t load scores from ESPN right now. Check your connection and tap Refresh.</div>';
       return;
     }
@@ -911,9 +1070,8 @@
     // changes or the picked filter changed, so an auto-refresh never
     // rebuilds them (and steals a tap) while the user is interacting.
     var sports = {};
-    [data.today.ordered, data.tomorrow.ordered, data.maryland.ordered].forEach(function (list) {
-      list.forEach(function (g) { sports[g.sport] = true; });
-    });
+    dayObj.ordered.ordered.forEach(function (g) { sports[g.sport] = true; });
+    dayObj.maryland.ordered.forEach(function (g) { sports[g.sport] = true; });
     var sig = SPORT_GROUP_ORDER.filter(function (s) { return sports[s]; }).join(",");
     if (filterDirty || sig !== filterSportsSig) {
       filterSportsSig = sig;
@@ -921,27 +1079,34 @@
       renderFilters(sports);
     }
     var html = "";
-    if (data.nascar) {
-      var d = dateFromYmd(data.nascar.date);
-      var isRaceDay = data.nascar.date === data.todayYmd;
-      html += '<div class="nascar"><div class="name">🏁 ' + esc(data.nascar.name) + (isRaceDay ? " — TODAY" : "") + '</div>' +
-        '<div class="when">NASCAR · ' + esc(shortDateOf(d)) + " · " + esc(data.nascar.network) + " · " + (data.nascar.time ? esc(data.nascar.time) : "Time TBA") + "</div></div>";
+    if (week.nascar) {
+      var d = dateFromYmd(week.nascar.date);
+      var isRaceDay = week.nascar.date === week.todayYmd;
+      html += '<div class="nascar"><div class="name">🏁 ' + esc(week.nascar.name) + (isRaceDay ? " — TODAY" : "") + '</div>' +
+        '<div class="when">NASCAR · ' + esc(shortDateOf(d)) + " · " + esc(week.nascar.network) + " · " + (week.nascar.time ? esc(week.nascar.time) : "Time TBA") + "</div></div>";
     }
-    html += sectionHTML("TODAY", data.today.ordered, data.today.pinned, currentFilter);
-    html += sectionHTML("TOMORROW", data.tomorrow.ordered, data.tomorrow.pinned, currentFilter);
-    if (data.maryland.ordered.length) {
-      html += sectionHTML("MARYLAND", data.maryland.ordered, data.maryland.pinned, currentFilter);
+    var dayHtml = sectionHTML(dayTitle(currentDay), dayObj.ordered.ordered, dayObj.ordered.pinned, currentFilter);
+    var mdHtml = "";
+    if (dayObj.maryland.ordered.length) {
+      mdHtml = sectionHTML("MARYLAND", dayObj.maryland.ordered, dayObj.maryland.pinned, currentFilter);
+    }
+    if (!dayHtml && !mdHtml) {
+      // The filter hides everything on this day (or the day genuinely
+      // has no games in that sport) — say so instead of a blank page.
+      if (currentFilter !== "ALL") {
+        html += '<div class="empty">No ' + esc(FILTER_LABELS[currentFilter] || currentFilter) + ' games on ' + esc(dayShortLabel(currentDay)) + '.</div>';
+      } else {
+        html += '<div class="empty">No games.</div>';
+      }
+    } else {
+      html += dayHtml + mdHtml;
     }
     app.innerHTML = html;
     document.getElementById("updated").textContent = "Updated " + timeOf(new Date());
-    document.getElementById("date").textContent = shortDateOf(data.now).toUpperCase();
+    document.getElementById("date").textContent = shortDateOf(new Date()).toUpperCase();
   }
 
   var timer = null;
-  async function refresh() {
-    var data = await loadAll();
-    render(data);
-  }
   function start() {
     document.getElementById("date").textContent = shortDateOf(new Date()).toUpperCase();
     document.getElementById("refreshBtn").addEventListener("click", refresh);
@@ -952,7 +1117,19 @@
       if (!sport || sport === currentFilter) return;
       currentFilter = sport;
       filterDirty = true;
-      if (lastData) render(lastData);
+      render();
+    });
+    // Day tabs: tapping a day shows that day's games. The filter and
+    // sort choices carry over; a day whose data hasn't arrived yet shows
+    // a loading state until the background load finishes.
+    document.getElementById("dayTabs").addEventListener("click", function (e) {
+      var day = e.target && e.target.dataset ? e.target.dataset.day : null;
+      if (day === null || day === undefined) return;
+      var idx = parseInt(day, 10);
+      if (isNaN(idx) || idx === currentDay || idx < 0 || idx >= WEEK_DAYS) return;
+      currentDay = idx;
+      filterDirty = true;
+      render();
     });
     // Sort toggle (Best games / Start time). The buttons are static, so
     // they are built once here; tapping one re-sorts the lists in place
@@ -964,9 +1141,9 @@
       currentSort = sort;
       try { window.localStorage.setItem("gamesSort", sort); } catch (err) {}
       renderSort();
-      if (lastData) render(lastData);
+      render();
     });
-    refresh();
+    initWeek();
     timer = setInterval(function () { refresh(); }, CONFIG.refreshSeconds * 1000);
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) refresh();
