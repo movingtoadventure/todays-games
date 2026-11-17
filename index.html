@@ -86,8 +86,9 @@
   .game:active { background: #171E27; }
   /* ESPN-style card: a header row (sport/network left, status right) and
      one row per team — logo, name, record, and the score in large bold
-     type on the right. The team that's ahead gets a bright score; the
-     trailing team's score is muted. Same dark theme, same information. */
+     type on the right. While a game is live both scores are the same
+     color; once it is final the winning score stands out and the losing
+     one goes muted. Same dark theme, same information. */
   .game-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
   .game-head .head-left { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
   .game-head .sport { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; white-space: nowrap; }
@@ -159,6 +160,14 @@
   function qualityCount(g) {
     var confs = POWER_CONFERENCES[g.sport] || [];
     return g.teams.filter(function (t) { return t.rank || confs.indexOf(t.conf) !== -1; }).length;
+  }
+  // How many teams in the game are ranked. Ranked-vs-ranked must outrank a
+  // ranked team vs an unranked power-conference team (Michael, 2026-11-16):
+  // qualityCount alone ties them (both count as two quality teams), so the
+  // ranked count breaks the tie first — e.g. #5 Duke vs #10 Illinois beats
+  // #8 Houston vs unranked Rutgers even when the records differ.
+  function rankedCount(g) {
+    return g.teams.filter(function (t) { return t.rank; }).length;
   }
   var NATIONAL_TV = ["ESPN", "FOX", "FS1", "TBS", "MLB NETWORK"];
 
@@ -592,7 +601,10 @@
       var mwp = combinedWinPct(b) - combinedWinPct(a);
       if (mwp) return mwp;
     }
-    // Competitiveness first: two quality teams beats one, which beats none.
+    // Competitiveness first: ranked-vs-ranked beats one ranked team, which
+    // beats none — then two quality teams beats one, which beats none.
+    var rc = rankedCount(b) - rankedCount(a);
+    if (rc) return rc;
     var qc = qualityCount(b) - qualityCount(a);
     if (qc) return qc;
     // Then both teams' records (matters most for football, mid/late season).
@@ -750,9 +762,10 @@
   // sport/network on the left and the status on the right (live clock in
   // green with the dot, Final, or the start time), then one row per team
   // — logo, rank, full name, record, and the score in large bold type on
-  // the right. The team that's ahead gets a bright score; the trailing
-  // team's score is muted. Pre-game rows have no score — the start time
-  // is in the header. Nothing the old card showed is removed.
+  // the right. While a game is live both scores are the same color; once
+  // it is final the winning score stands out and the losing one goes
+  // muted. Pre-game rows have no score — the start time is in the header.
+  // Nothing the old card showed is removed.
   function gameRowHTML(g, pinned) {
     var parts = matchupParts(g);
     var net = (g.broadcasts[0] || "").toUpperCase();
@@ -774,7 +787,10 @@
       var scoreHtml = "";
       if (g.state !== "pre" && t.score !== null) {
         // A live 0–0 reads "0" on each row, never dashes (Michael, 2026-11-14).
-        var losing = (s0 !== null && s1 !== null && ((i === 0 && Number(s0) < Number(s1)) || (i === 1 && Number(s1) < Number(s0))));
+        // Winner/loser emphasis is final-only (Michael, 2026-11-16): while a
+        // game is live both scores are the same color; only once it is final
+        // does the winning score stand out and the losing one go muted.
+        var losing = (g.state === "post" && s0 !== null && s1 !== null && ((i === 0 && Number(s0) < Number(s1)) || (i === 1 && Number(s1) < Number(s0))));
         scoreHtml = '<span class="score' + (losing ? " losing" : "") + '">' + esc(String(t.score)) + "</span>";
       }
       return '<div class="team">' + img + rank + '<span class="name">' + esc(p.name) + "</span>" + rec + scoreHtml + "</div>";
