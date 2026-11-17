@@ -607,6 +607,14 @@
     if (rc) return rc;
     var qc = qualityCount(b) - qualityCount(a);
     if (qc) return qc;
+    // When both games are ranked-vs-ranked, the lowest combined rank wins
+    // first (Michael, 2026-11-16): #5 vs #10 (sum 15) outranks #14 vs #2
+    // (sum 16), even when the records differ. For other games, records
+    // still decide before ranks.
+    if (rankedCount(a) === 2 && rankedCount(b) === 2) {
+      var rs0 = rankSum(a) - rankSum(b);
+      if (rs0) return rs0;
+    }
     // Then both teams' records (matters most for football, mid/late season).
     var wp = combinedWinPct(b) - combinedWinPct(a);
     if (wp) return wp;
