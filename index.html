@@ -84,19 +84,24 @@
     color: inherit;
   }
   .game:active { background: #171E27; }
-  .line1 { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 16px; font-weight: 700; line-height: 1.25; }
-  .line1 img { width: 22px; height: 22px; object-fit: contain; flex: none; }
-  .line1 .vs { color: var(--muted); font-weight: 600; flex: none; }
-  .line1 .rank { color: var(--accent); font-weight: 800; margin-right: 4px; flex: none; }
-  .line1 .rec { color: var(--muted); font-weight: 600; font-size: 13px; margin-left: 2px; flex: none; }
-  .line1 .pin { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 0.05em; margin-left: auto; white-space: nowrap; }
-  .line2 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 4px; }
-  .line2 .sub { font-size: 13px; color: var(--muted); }
-  .line2 .right { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; font-weight: 700; white-space: nowrap; line-height: 1.3; }
-  .line2 .right.live { color: var(--live); }
-  .line2 .right .clock { color: var(--live); }
-  .line2 .right .status { color: var(--muted); font-weight: 400; }
-  .line2 .right .score { color: #fff; font-size: 14px; }
+  /* ESPN-style card: a header row (sport/network left, status right) and
+     one row per team — logo, name, record, and the score in large bold
+     type on the right. The team that's ahead gets a bright score; the
+     trailing team's score is muted. Same dark theme, same information. */
+  .game-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .game-head .head-left { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .game-head .sport { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; white-space: nowrap; }
+  .game-head .pin { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0.05em; white-space: nowrap; }
+  .game-head .status { font-size: 13px; font-weight: 700; white-space: nowrap; }
+  .game-head .status.live { color: var(--live); }
+  .game-head .status.final { color: var(--muted); font-weight: 600; }
+  .team { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .team img { width: 26px; height: 26px; object-fit: contain; flex: none; }
+  .team .rank { color: var(--accent); font-weight: 800; font-size: 15px; flex: none; }
+  .team .name { font-size: 16px; font-weight: 700; line-height: 1.25; }
+  .team .rec { color: var(--muted); font-weight: 600; font-size: 13px; flex: none; }
+  .team .score { margin-left: auto; font-size: 20px; font-weight: 800; line-height: 1; flex: none; }
+  .team .score.losing { color: var(--muted); font-weight: 700; }
   .empty { color: var(--muted); font-size: 15px; padding: 12px 2px; }
   .error { color: var(--muted); font-size: 14px; padding: 16px 2px; line-height: 1.5; }
   footer { margin-top: 24px; font-size: 12px; color: var(--faint); line-height: 1.6; }
@@ -129,8 +134,10 @@
     refreshSeconds: 60,
   };
 
-  var SPORT_ORDER = { MLB: 0, LLWS: 1, CFB: 2, CBB: 3 };
-  var BLOWOUT_MARGIN = { CFB: 24, CBB: 21, MLB: 6, LLWS: 10 };
+  var SPORT_ORDER = { MLB: 0, LLWS: 1, CFB: 2, CBB: 3, NFL: 4 };
+  var BLOWOUT_MARGIN = { CFB: 24, CBB: 21, MLB: 6, LLWS: 10, NFL: 24 };
+  // (NFL blowout is 24, same as CFB: both are high-scoring football, and a
+  //  24-point lead is out of reach late.)
   var FAV_CONFERENCES = {
     CFB: ["8", "5"],       // ESPN conferenceIds: SEC 8, Big Ten 5
     CBB: ["23", "7", "8"], // SEC 23, Big Ten 7, Big 12 8 (IDs differ by sport)
@@ -213,6 +220,7 @@
     cbbRanks:  "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/rankings",
     mlbScores: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
     llbScores: "https://site.api.espn.com/apis/site/v2/sports/baseball/llb/scoreboard",
+    nflScores: "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
   };
 
   // Fox Sports "Bifrost" API, used to deep-link FOX/FS1 games into the Fox
@@ -322,6 +330,10 @@
       var fallbackRank = (curated && curated >= 1 && curated <= 25) ? curated : null;
       var nm = c.team.shortDisplayName || c.team.displayName || c.team.abbreviation;
       if (sport === "LLWS") nm = nm.replace(/\s[A-Z]{2,3}$/, "");
+      // NFL shortDisplayName is just the nickname ("Ravens"), so the page
+      // uses the full displayName ("Baltimore Ravens") — the page always
+      // shows full team names.
+      if (sport === "NFL") nm = c.team.displayName || c.team.shortDisplayName || c.team.abbreviation;
       return {
         id: String(c.team.id),
         abbr: c.team.abbreviation,
@@ -370,11 +382,59 @@
     if (!teamId) return null;
     if (sport === "CFB" || sport === "CBB") return "https://a.espncdn.com/i/teamlogos/ncaa/500-dark/" + teamId + ".png";
     if (sport === "MLB") return "https://a.espncdn.com/i/teamlogos/mlb/500/" + teamId + ".png";
+    // NFL has no dark variant (nfl/500-dark 404s — verified 2026-11-16).
+    if (sport === "NFL") return "https://a.espncdn.com/i/teamlogos/nfl/500/" + teamId + ".png";
     return null;
   }
   function isNationalTV(broadcasts) {
     for (var i = 0; i < broadcasts.length; i++) {
       if (NATIONAL_TV.indexOf(String(broadcasts[i]).trim().toUpperCase()) !== -1) return true;
+    }
+    return false;
+  }
+  // NFL divisions by team abbreviation (for the "divisional matchup" test).
+  // ESPN uses WSH for Washington; WAS is included as a safety net.
+  var NFL_DIVISIONS = {
+    BUF: "AFCE", MIA: "AFCE", NE: "AFCE", NYJ: "AFCE",
+    BAL: "AFCN", CIN: "AFCN", CLE: "AFCN", PIT: "AFCN",
+    HOU: "AFCS", IND: "AFCS", JAX: "AFCS", TEN: "AFCS",
+    DEN: "AFCW", KC: "AFCW", LV: "AFCW", LAC: "AFCW",
+    DAL: "NFCE", NYG: "NFCE", PHI: "NFCE", WSH: "NFCE", WAS: "NFCE",
+    CHI: "NFCN", DET: "NFCN", GB: "NFCN", MIN: "NFCN",
+    ATL: "NFCS", CAR: "NFCS", NO: "NFCS", TB: "NFCS",
+    ARI: "NFCW", LAR: "NFCW", SF: "NFCW", SEA: "NFCW",
+  };
+  // Primetime NFL windows: NBC carries only Sunday Night Football, ESPN
+  // only Monday Night Football, Prime Video only Thursday Night Football,
+  // so the broadcast network alone identifies the primetime slot.
+  var NFL_PRIMETIME = ["NBC", "ESPN", "PRIME VIDEO", "AMAZON PRIME VIDEO"];
+  function isNflPrimetime(g) {
+    for (var i = 0; i < g.broadcasts.length; i++) {
+      if (NFL_PRIMETIME.indexOf(String(g.broadcasts[i]).trim().toUpperCase()) !== -1) return true;
+    }
+    return false;
+  }
+  function isNflDivisional(g) {
+    if (g.teams.length < 2) return false;
+    var d0 = NFL_DIVISIONS[g.teams[0].abbr], d1 = NFL_DIVISIONS[g.teams[1].abbr];
+    return d0 && d0 === d1;
+  }
+  // A "good" NFL game: a playoff game, a primetime game, a divisional game,
+  // a matchup of two good teams (both .500 or better, or combined .600+),
+  // or a live game that's still close (within 7 points). NFL has no
+  // rankings, so these are the quality signals. Only good games are
+  // collected — and on the page they sit below the other sports.
+  function isGoodNflGame(g) {
+    if (g.playoff) return true;
+    if (isNflPrimetime(g)) return true;
+    if (isNflDivisional(g)) return true;
+    var pcts = g.teams.map(function (t) { return t.winPct; });
+    if (pcts.length === 2 && pcts[0] !== null && pcts[1] !== null) {
+      if (pcts[0] >= 0.5 && pcts[1] >= 0.5) return true;
+      if ((pcts[0] + pcts[1]) / 2 >= 0.6) return true;
+    }
+    if (g.state === "in" && g.teams.length === 2 && g.teams[0].score !== null && g.teams[1].score !== null) {
+      if (Math.abs(g.teams[0].score - g.teams[1].score) <= 7) return true;
     }
     return false;
   }
@@ -551,8 +611,14 @@
   }
   function orderGames(games) {
     var list = games.slice();
-    var playoffs = list.filter(function (g) { return g.playoff; });
-    var rest = list.filter(function (g) { return !g.playoff; });
+    // NFL is the lowest priority (Michael, 2026-11-16): it is separated
+    // out first so that even a playoff or live-close NFL game never jumps
+    // ahead of a CFB/CBB/MLB/LLWS game. Within NFL, the same state-class
+    // + watch order applies.
+    var nfl = list.filter(function (g) { return g.sport === "NFL"; });
+    var nonNfl = list.filter(function (g) { return g.sport !== "NFL"; });
+    var playoffs = nonNfl.filter(function (g) { return g.playoff; });
+    var rest = nonNfl.filter(function (g) { return !g.playoff; });
     var matchups = rest.filter(isTop5Matchup).sort(function (a, b) {
       var fav = (hasFavConf(b) ? 1 : 0) - (hasFavConf(a) ? 1 : 0);
       if (fav) return fav;
@@ -562,7 +628,8 @@
     var others = rest.filter(function (g) { return g !== pinned; });
     others.sort(function (a, b) { return stateClass(a) - stateClass(b) || watchCompare(a, b); });
     playoffs.sort(function (a, b) { return stateClass(a) - stateClass(b) || watchCompare(a, b); });
-    return { ordered: playoffs.concat(pinned ? [pinned] : []).concat(others), pinned: pinned };
+    nfl.sort(function (a, b) { return stateClass(a) - stateClass(b) || watchCompare(a, b); });
+    return { ordered: playoffs.concat(pinned ? [pinned] : []).concat(others).concat(nfl), pinned: pinned };
   }
 
   async function fetchJSON(url) {
@@ -590,11 +657,13 @@
       fetchJSON(URLS.cbbRanks),
       fetchJSON(sbUrl(URLS.mlbScores, todayYmd)), fetchJSON(sbUrl(URLS.mlbScores, tomorrowYmd)),
       fetchJSON(sbUrl(URLS.llbScores, todayYmd)), fetchJSON(sbUrl(URLS.llbScores, tomorrowYmd)),
+      fetchJSON(sbUrl(URLS.nflScores, todayYmd)), fetchJSON(sbUrl(URLS.nflScores, tomorrowYmd)),
     ]);
     var cfbToday = results[0], cfbTom = results[1], cfbR = results[2],
         cbbToday = results[3], cbbTom = results[4], cbbR = results[5],
         mlbToday = results[6], mlbTom = results[7],
-        llbToday = results[8], llbTom = results[9];
+        llbToday = results[8], llbTom = results[9],
+        nflToday = results[10], nflTom = results[11];
     var cfbRanks = rankMap(cfbR, "Playoff");
     var cbbRanks = rankMap(cbbR, "AP Top 25");
     var todayGames = [], tomorrowGames = [], mdGames = [];
@@ -628,6 +697,12 @@
       var notes = comp.notes || [];
       return notes.some(function (n) { return String(n.headline || "").indexOf("Little League Baseball World Series") !== -1; });
     });
+    // NFL: good games only (primetime, playoffs, good records, divisional,
+    // live close). On the page they appear in their own group below the
+    // other sports, and the NFL filter button only shows when NFL games
+    // are in the lists.
+    collect(nflToday, null, "NFL", function (g) { return isGoodNflGame(g); });
+    collect(nflTom, null, "NFL", function (g) { return isGoodNflGame(g); });
     // Maryland football, even when unranked — the full view includes it.
     // (Ranked Maryland games already appear in the main lists; this section
     // only shows the ones that would otherwise be missing.)
@@ -667,41 +742,44 @@
       nascar: nextNascar(todayYmd),
       todayYmd: todayYmd,
       now: now,
-      anyFeed: !!(cfbToday || cfbTom || cbbToday || cbbTom || mlbToday || mlbTom || llbToday || llbTom),
+      anyFeed: !!(cfbToday || cfbTom || cbbToday || cbbTom || mlbToday || mlbTom || llbToday || llbTom || nflToday || nflTom),
     };
   }
 
+  // ESPN-style game card (restyled 2026-11-16): a header row with the
+  // sport/network on the left and the status on the right (live clock in
+  // green with the dot, Final, or the start time), then one row per team
+  // — logo, rank, full name, record, and the score in large bold type on
+  // the right. The team that's ahead gets a bright score; the trailing
+  // team's score is muted. Pre-game rows have no score — the start time
+  // is in the header. Nothing the old card showed is removed.
   function gameRowHTML(g, pinned) {
     var parts = matchupParts(g);
-    var cells = g.teams.map(function (t, i) {
+    var net = (g.broadcasts[0] || "").toUpperCase();
+    var sub = g.sport + (net ? " · " + net : "");
+    if (g.sport === "LLWS" && g.round) sub += " · " + esc(g.round);
+    var status = "", statusCls = "";
+    if (g.state === "in") { status = "● " + esc(g.detail); statusCls = "live"; }
+    else if (g.state === "post") { status = "Final"; statusCls = "final"; }
+    else { status = esc(g.time); }
+    var pinTag = pinned ? '<span class="pin">TOP 5</span>' : "";
+    var s0 = g.teams.length > 0 ? g.teams[0].score : null;
+    var s1 = g.teams.length > 1 ? g.teams[1].score : null;
+    var rows = g.teams.map(function (t, i) {
       var logo = logoUrl(g.sport, t.id);
       var img = logo ? '<img src="' + esc(logo) + '" alt="" onerror="this.style.display=\'none\'">' : "";
       var p = parts[i];
       var rank = p.rank ? '<span class="rank">#' + p.rank + "</span>" : "";
       var rec = p.record ? '<span class="rec">' + esc(p.record) + "</span>" : "";
-      return (i > 0 ? '<span class="vs">vs</span>' : "") + img + rank + "<span>" + esc(p.name) + "</span>" + rec;
+      var scoreHtml = "";
+      if (g.state !== "pre" && t.score !== null) {
+        // A live 0–0 reads "0" on each row, never dashes (Michael, 2026-11-14).
+        var losing = (s0 !== null && s1 !== null && ((i === 0 && Number(s0) < Number(s1)) || (i === 1 && Number(s1) < Number(s0))));
+        scoreHtml = '<span class="score' + (losing ? " losing" : "") + '">' + esc(String(t.score)) + "</span>";
+      }
+      return '<div class="team">' + img + rank + '<span class="name">' + esc(p.name) + "</span>" + rec + scoreHtml + "</div>";
     }).join("");
-    var net = (g.broadcasts[0] || "").toUpperCase();
-    var sub = g.sport + (net ? " · " + net : "");
-    if (g.sport === "LLWS" && g.round) sub += " · " + esc(g.round);
-    var right = "", rightCls = "";
-    if (g.state === "in") {
-      // The score sits underneath the time remaining: the clock on top
-      // (green, with the live dot) and the score below it in bold white,
-      // so the number reads clearly at a glance (Michael, 2026-11-14).
-      // A live 0–0 reads "0 - 0", never dashes.
-      var score = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join(" - ");
-      right = '<span class="clock">● ' + esc(g.detail) + '</span><span class="score">' + esc(score) + "</span>";
-      rightCls = "live";
-    } else if (g.state === "post") {
-      var fscore = g.teams.map(function (t) { return t.score === null ? "–" : t.score; }).join(" - ");
-      right = '<span class="status">Final</span><span class="score">' + esc(fscore) + "</span>";
-    } else {
-      right = esc(g.time);
-    }
-    var pinTag = pinned ? '<span class="pin">TOP 5</span>' : "";
-    var inner = '<div class="line1">' + cells + pinTag + "</div>" +
-      '<div class="line2"><span class="sub">' + esc(sub) + '</span><span class="right ' + rightCls + '">' + right + "</span></div>";
+    var inner = '<div class="game-head"><span class="head-left"><span class="sport">' + esc(sub) + "</span>" + pinTag + '</span><span class="status ' + statusCls + '">' + status + "</span></div>" + rows;
     // Fox-broadcast games link to their Fox game page (opens the Fox Sports
     // app on iOS); everything else links to its ESPN boxscore/gamecast.
     var href = g.foxLink || g.link;
@@ -709,15 +787,15 @@
     return '<div class="game">' + inner + "</div>";
   }
 
-  var SPORT_LABELS = { MLB: "Baseball", LLWS: "Little League World Series", CFB: "College Football", CBB: "College Basketball" };
-  var SPORT_GROUP_ORDER = ["MLB", "LLWS", "CFB", "CBB"]; // same sport priority as the widget
+  var SPORT_LABELS = { MLB: "Baseball", LLWS: "Little League World Series", CFB: "College Football", CBB: "College Basketball", NFL: "NFL" };
+  var SPORT_GROUP_ORDER = ["MLB", "LLWS", "CFB", "CBB", "NFL"]; // same sport priority as the widget
 
   // Sport filter (toggle buttons at the top of the page). "ALL" shows every
   // sport; picking one sport shows only that sport's games, so there is no
   // need to scroll to the bottom to find it. The choice survives the 60s
   // auto-refresh. LLWS only gets a button when LLWS games are actually
   // happening, matching the rule that LLWS UI stays hidden out of season.
-  var FILTER_LABELS = { ALL: "All", CFB: "Football", CBB: "Basketball", MLB: "Baseball", LLWS: "Little League" };
+  var FILTER_LABELS = { ALL: "All", CFB: "Football", CBB: "Basketball", MLB: "Baseball", LLWS: "Little League", NFL: "NFL" };
   var currentFilter = "ALL";
   var lastData = null;
   var filterSportsSig = "";
