@@ -895,4 +895,16 @@ async function main() {
   Script.complete();
 }
 
-main();
+// If anything goes wrong while loading the games, show that instead of
+// dying silently with a blank screen — so a tap on Play always shows
+// something, and a failed fetch is obvious.
+main().catch(async (e) => {
+  const w = new ListWidget();
+  w.backgroundColor = CONFIG.darkMode ? C.bg : new Color("#F2F2F7");
+  const t = w.addText("Couldn't load games. Check your connection and try again.");
+  t.font = Font.systemFont(10);
+  t.textColor = CONFIG.darkMode ? C.text : new Color("#111111");
+  if (config.runsInWidget) Script.setWidget(w);
+  else await w.presentSmall();
+  Script.complete();
+});
