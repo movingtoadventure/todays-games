@@ -41,18 +41,24 @@
     cursor: pointer;
   }
   .refresh:active { background: var(--divider); }
-  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+  /* Sport filter as one segmented control: a single rounded bar with the
+     options inside it, the active one in gold. Scrolls sideways on narrow
+     phones instead of wrapping, matching the day tabs above it. */
+  .filters { display: flex; gap: 4px; margin: 12px 0 4px; background: var(--card); border: 1px solid var(--divider); border-radius: 999px; padding: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .filters::-webkit-scrollbar { display: none; }
   .filter-btn {
-    background: var(--card);
+    background: transparent;
     color: var(--muted);
-    border: 1px solid var(--divider);
+    border: none;
     border-radius: 999px;
-    padding: 6px 14px;
+    padding: 7px 14px;
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
+    white-space: nowrap;
+    flex: none;
   }
-  .filter-btn.active { background: var(--accent); color: #0B0F14; border-color: var(--accent); }
+  .filter-btn.active { background: var(--accent); color: #0B0F14; }
   /* Week view (Michael, 2026-11-17): seven day tabs across the top
      (today + 6 days). Tapping a day shows that day's games. The row
      scrolls horizontally on narrow phones; the selected day is gold. */
