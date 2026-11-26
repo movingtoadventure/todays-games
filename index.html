@@ -24,9 +24,9 @@
     padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
   }
   .wrap { max-width: 640px; margin: 0 auto; }
-  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
-  h1 { font-size: 20px; font-weight: 800; letter-spacing: 0.02em; }
-  .date { font-size: 13px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+  header { text-align: center; margin-bottom: 6px; }
+  h1 { font-size: 22px; font-weight: 800; letter-spacing: 0.02em; }
+  .date { display: block; font-size: 13px; font-weight: 700; color: var(--muted); margin-top: 2px; }
   .meta { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
   .updated { font-size: 12px; color: var(--faint); }
   .refresh {
@@ -76,7 +76,7 @@
   .sort-label { font-size: 13px; color: var(--muted); font-weight: 700; margin-right: 2px; }
   .section-title {
     font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
-    color: var(--muted); margin: 20px 0 8px;
+    color: var(--muted); margin: 22px 0 10px;
   }
   .sport-title {
     font-size: 11px; font-weight: 800; letter-spacing: 0.08em;
@@ -86,9 +86,9 @@
     background: var(--card);
     border: 1px solid var(--divider);
     border-left: 3px solid var(--accent);
-    border-radius: 12px;
-    padding: 12px 14px;
-    margin-bottom: 8px;
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
   }
   .nascar .name { font-size: 15px; font-weight: 700; }
   .nascar .when { font-size: 13px; color: var(--muted); margin-top: 2px; }
@@ -96,9 +96,9 @@
     display: block;
     background: var(--card);
     border: 1px solid var(--divider);
-    border-radius: 12px;
-    padding: 12px 14px;
-    margin-bottom: 8px;
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 12px;
     text-decoration: none;
     color: inherit;
   }
@@ -108,19 +108,19 @@
      type on the right. While a game is live both scores are the same
      color; once it is final the winning score stands out and the losing
      one goes muted. Same dark theme, same information. */
-  .game-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .game-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
   .game-head .head-left { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
   .game-head .sport { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; white-space: nowrap; }
   .game-head .pin { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0.05em; white-space: nowrap; }
   .game-head .status { font-size: 13px; font-weight: 700; white-space: nowrap; }
   .game-head .status.live { color: var(--live); }
   .game-head .status.final { color: var(--muted); font-weight: 600; }
-  .team { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
-  .team img { width: 26px; height: 26px; object-fit: contain; flex: none; }
+  .team { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  .team img { width: 32px; height: 32px; object-fit: contain; flex: none; }
   .team .rank { color: var(--accent); font-weight: 800; font-size: 15px; flex: none; }
-  .team .name { font-size: 16px; font-weight: 700; line-height: 1.25; }
+  .team .name { font-size: 17px; font-weight: 700; line-height: 1.25; }
   .team .rec { color: var(--muted); font-weight: 600; font-size: 13px; flex: none; }
-  .team .score { margin-left: auto; font-size: 20px; font-weight: 800; line-height: 1; flex: none; }
+  .team .score { margin-left: auto; font-size: 22px; font-weight: 800; line-height: 1; flex: none; }
   .team .score.losing { color: var(--muted); font-weight: 700; }
   .empty { color: var(--muted); font-size: 15px; padding: 12px 2px; }
   .error { color: var(--muted); font-size: 14px; padding: 16px 2px; line-height: 1.5; }
