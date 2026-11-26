@@ -41,6 +41,7 @@
     cursor: pointer;
   }
   .refresh:active { background: var(--divider); }
+  .refresh:disabled { opacity: 0.55; cursor: default; }
   /* Sport filter as one segmented control: a single rounded bar with the
      options inside it, the active one in gold. Scrolls sideways on narrow
      phones instead of wrapping, matching the day tabs above it. */
@@ -285,6 +286,11 @@
   }
   function timeOf(d) {
     return new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" }).format(d);
+  }
+  // Same as timeOf but with seconds, so a manual refresh is always visible
+  // in the "Updated" line even when it happens inside the same minute.
+  function timeOfSeconds(d) {
+    return new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit", second: "2-digit" }).format(d);
   }
   function shortDateOf(d) {
     return new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" }).format(d);
@@ -1111,14 +1117,26 @@
       html += dayHtml + mdHtml;
     }
     app.innerHTML = html;
-    document.getElementById("updated").textContent = "Updated " + timeOf(new Date());
+    document.getElementById("updated").textContent = "Updated " + timeOfSeconds(new Date());
     document.getElementById("date").textContent = shortDateOf(new Date()).toUpperCase();
   }
 
   var timer = null;
   function start() {
     document.getElementById("date").textContent = shortDateOf(new Date()).toUpperCase();
-    document.getElementById("refreshBtn").addEventListener("click", refresh);
+    // Manual refresh: show that the tap registered. The button says
+    // "Refreshing…" and can't be double-tapped while the fetch runs,
+    // then goes back to "Refresh". The 60s auto-refresh doesn't touch
+    // the button.
+    document.getElementById("refreshBtn").addEventListener("click", async function () {
+      var btn = document.getElementById("refreshBtn");
+      btn.disabled = true;
+      btn.textContent = "Refreshing…";
+      try { await refresh(); } finally {
+        btn.disabled = false;
+        btn.textContent = "Refresh";
+      }
+    });
     // One delegated listener on the filter row: the buttons are rebuilt
     // whenever the sports change, but this listener survives the rebuild.
     document.getElementById("filters").addEventListener("click", function (e) {
