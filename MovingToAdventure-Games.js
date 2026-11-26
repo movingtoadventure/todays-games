@@ -664,7 +664,12 @@ async function loadLogos(games) {
       if (!url) continue;
       jobs.push((async () => {
         try {
-          const raw = await new Request(url).loadImage();
+          // Logos get their own short timeout: a slow logo must fail fast
+          // instead of hanging the whole script past Scriptable's run
+          // limit, which kills it with a timeout and shows nothing.
+          const req = new Request(url);
+          req.timeoutInterval = 10;
+          const raw = await req.loadImage();
           t.img = bakeLogo(raw);
         } catch (e) { t.img = null; }
       })());
